@@ -27,5 +27,15 @@
   "cat.subscriptions": "Subscriptions",
   "cat.emergency": "Emergency",
   "cat.savings": "Savings",
-  "cat.allowance": "Pocket money"
+  "cat.allowance": "Pocket money",
+  "nav.menu": "Navigation",
+  "home.lead": "All your personal tools in one place. Tap a tool to open it.",
+  "palette.graphite": "Graphite",
+  "palette.emerald": "Emerald",
+  "palette.riyadh": "Riyadh night",
+  "palette.wine": "Burgundy",
+  "palette.ice": "Ice",
+  "palette.sand": "Sand",
+  "palette.mint": "Mint",
+  "palette.custom": "Your colours"
 }

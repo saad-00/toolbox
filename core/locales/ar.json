@@ -27,5 +27,15 @@
   "cat.subscriptions": "الاشتراكات",
   "cat.emergency": "الطوارئ",
   "cat.savings": "الادخار",
-  "cat.allowance": "المصروف"
+  "cat.allowance": "المصروف",
+  "nav.menu": "التنقل",
+  "home.lead": "كل أدواتك الشخصية في مكان واحد. اضغط على أداة لفتحها.",
+  "palette.graphite": "جرافيت",
+  "palette.emerald": "زمرّد",
+  "palette.riyadh": "ليل الرياض",
+  "palette.wine": "عنّاب",
+  "palette.ice": "جليد",
+  "palette.sand": "رمل",
+  "palette.mint": "نعناع",
+  "palette.custom": "ألوانك"
 }
