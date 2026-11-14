@@ -18,6 +18,10 @@ test('rejects malformed comma grouping and unsafe values', () => {
 test('formats', () => {
   assert.equal(formatAmount(173025, 'ar'), '1,730.25');
   assert.equal(formatAmount(100000, 'en'), '1,000');
+  assert.equal(formatAmount(153020, 'ar'), '1,530.20');
+  assert.equal(formatAmount(17175, 'en'), '171.75');
+  assert.equal(formatAmount(5, 'en'), '0.05');
+  assert.equal(formatAmount(-15050, 'en'), '-150.50');
 });
 test('formats negatives', () => {
   assert.equal(formatAmount(-10000, 'ar'), '-100');

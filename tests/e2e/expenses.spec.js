@@ -197,7 +197,11 @@ test.describe('Arabic', () => {
     await expect(plan.locator('.sched span')).toHaveCount(48);
     const s = await stored(page);
     const p = s.plans.find((x) => x.item === 'جوال');
-    expect(p).toMatchObject({ provider: 'تابي', total: 480000, n: 48, start: '2026-11-15' });
+    expect(p).toMatchObject({ provider: 'tabby', total: 480000, n: 48, start: '2026-11-15' });
+    // canonical 'tabby' and the fixture's legacy «تابي» share one summary row
+    await page.locator('.tabs button[data-tab=sum]').click();
+    await expect(page.locator('#exCats .cat', { hasText: 'أقساط تابي' })).toHaveCount(1);
+    await expect(page.locator('#exCats .cat', { hasText: 'أقساط تابي' })).toContainText('1,631 من 1,631');
     expect(p.paid[0]).toBe(true);
   });
 
@@ -240,6 +244,56 @@ test.describe('Arabic', () => {
     expect((await stored(page)).tx).toHaveLength(5);
   });
 
+  test('custom provider name is stored as typed', async ({ page }) => {
+    await seed(page);
+    await page.locator('.tabs button[data-tab=ins]').click();
+    await page.locator('#exNewPlan').click();
+    await page.locator('#provs button[data-p=other]').click();
+    await page.locator('#provOther').fill('مدفوع');
+    await page.locator('#pTotal').fill('300');
+    await page.locator('#nChips button[data-n="3"]').click();
+    await page.locator('#planSheet button[type=submit]').click();
+    await expect(page.locator('#planSheet')).not.toHaveClass(/\bon\b/);
+    const s = await stored(page);
+    expect(s.plans.map((p) => p.provider)).toEqual(['تمارا', 'تابي', 'مدفوع']);
+  });
+
+  test('save failure keeps the sheet open and rolls back', async ({ page }) => {
+    await seed(page);
+    await page.evaluate(() => {
+      const put = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (v, k) {
+        if (k === 'state') throw new DOMException('quota', 'QuotaExceededError');
+        return put.call(this, v, k);
+      };
+    });
+    await page.locator('#fab').click();
+    await page.locator('#logAmt').fill('50');
+    await page.locator('#logSheet button[type=submit]').click();
+    await expect(page.locator('#toast')).toHaveText('تعذّر الحفظ على هذا الجهاز');
+    await expect(page.locator('#logSheet')).toHaveClass(/\bon\b/);
+    await expect(page.locator('#exLeft')).toContainText('1,730.25');
+    // the in-memory state was rolled back: a later successful save does not include the failed tx
+    await page.keyboard.press('Escape');
+    await page.locator('#mNext').click();
+    await expect(page.locator('.mscroll button.on')).toHaveAttribute('data-m', '2026-12');
+    await page.locator('.tabs button[data-tab=tx]').click();
+    await page.locator('#mPrev').click();
+    await expect(page.locator('#exTxs .tx')).toHaveCount(7); // 5 tx + 2 paid installments
+  });
+
+  test('a rejected amount leaves no stray month record', async ({ page }) => {
+    await seed(page);
+    await page.locator('#mNext').click();
+    await page.locator('#fab').click();
+    await page.locator('#logAmt').fill('0');
+    await page.locator('#logSheet button[type=submit]').click();
+    await expect(page.locator('#toast')).toHaveText('اكتب مبلغاً صحيحاً');
+    expect(Object.keys((await stored(page)).months)).toEqual(['2026-11']);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#exNew')).toBeVisible();
+  });
+
   test('hub quick button opens the log sheet', async ({ page }) => {
     await seed(page);
     await page.goto('./#home');
@@ -249,6 +303,43 @@ test.describe('Arabic', () => {
     await page.locator('.tool[data-tool=expenses] .quick').click();
     await expect(page).toHaveURL(/#expenses$/);
     await expect(page.locator('#logSheet')).toHaveClass(/\bon\b/);
+  });
+});
+
+test.describe('storage read failure', () => {
+  test('a failed load shows an error, never writes, and retry recovers', async ({ page }) => {
+    await seed(page);
+    await page.addInitScript(() => {
+      window.__failGet = true;
+      window.__puts = 0;
+      const get = IDBObjectStore.prototype.get;
+      IDBObjectStore.prototype.get = function (k) {
+        if (k === 'state' && window.__failGet) throw new DOMException('read failed', 'UnknownError');
+        return get.call(this, k);
+      };
+      const put = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (v, k) {
+        if (k === 'state') window.__puts++;
+        return put.call(this, v, k);
+      };
+    });
+    await page.reload();
+    await expect(page.locator('#exLoadErr')).toBeVisible();
+    await expect(page.locator('#exLoadErr')).toContainText('تعذّر قراءة بياناتك');
+    await expect(page.locator('#exLeft')).toHaveCount(0);
+    await expect(page.locator('#fab')).toBeHidden();
+    await page.goto('./#home');
+    await page.locator('.tool[data-tool=expenses] .quick').click();
+    await expect(page.locator('#exLoadErr')).toBeVisible();
+    expect(await page.evaluate(() => window.__puts)).toBe(0);
+    // retry while still failing keeps the error; once reads work, the saved data comes back intact
+    await page.locator('#exRetry').click();
+    await expect(page.locator('#exLoadErr')).toBeVisible();
+    await page.evaluate(() => { window.__failGet = false; });
+    await page.locator('#exRetry').click();
+    await expect(page.locator('#exLeft')).toContainText('1,730.25');
+    await expect(page.locator('#fab')).toBeVisible();
+    expect(await page.evaluate(() => window.__puts)).toBe(0);
   });
 });
 

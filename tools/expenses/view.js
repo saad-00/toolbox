@@ -80,10 +80,24 @@ export function mountExpenses(el, ctx) {
   };
   const defDate = () => (monthOf(todayLocal()) === cur ? todayLocal() : `${cur}-15`);
 
-  async function commit(msg) {
-    try { await save(state); } catch { toast(t('err.save')); render(); return; }
-    render();
+  // Put the shared state object back to a snapshot (it is owned by app.js, so mutate in place).
+  function restore(snap) {
+    for (const k of Object.keys(state)) delete state[k];
+    Object.assign(state, snap);
+  }
+
+  // One write: fn() mutates state and returns the success toast. A thrown validation error or a
+  // failed save rolls the in-memory state back to the snapshot, toasts, and leaves any sheet open.
+  async function mutate(fn, { sheet = false, errVars, keepBud = false, onDone } = {}) {
+    const snap = structuredClone(state);
+    let msg;
+    try { msg = fn(); } catch (err) { restore(snap); toast(errMsg(err, errVars)); return false; }
+    try { await save(state); } catch { restore(snap); toast(t('err.save')); render(); return false; }
+    if (sheet) closeSheet();
+    if (onDone) onDone();
+    render({ keepBud });
     if (msg) toast(msg);
+    return true;
   }
 
   // ---------- static skeleton ----------
@@ -195,7 +209,7 @@ export function mountExpenses(el, ctx) {
     $('#fBud').textContent = money(sum.budgetTotal);
     $('#fAct').textContent = money(sum.remainingActual);
     const rows = sum.rows.map((r) => ({ label: catLabel(getCategory(view, r.catId), t), s: r.spent, b: r.budget }))
-      .concat(sum.providers.map((p) => ({ label: t('sum.provider', { provider: provLabel(p.provider) }), s: p.paid, b: p.due })))
+      .concat(providerRows(sum.providers))
       .filter((r) => r.s || r.b);
     $('#exCats').innerHTML = rows.length ? rows.map(({ label, s, b }) => {
       const over = s > b;
@@ -204,6 +218,18 @@ export function mountExpenses(el, ctx) {
         + `<div class="bar"><i class="${over ? 'over' : ''}" style="width:${w}%"></i></div>`
         + `${over ? `<div class="over-t">${esc(t('sum.over', { amount: money(s - b) }))}</div>` : ''}</div>`;
     }).join('') : `<p class="note">${esc(t('sum.empty'))}</p>`;
+  }
+
+  // Merge provider rows that name the same known provider (canonical 'tabby' and legacy «تابي»).
+  function providerRows(providers) {
+    const by = new Map();
+    for (const p of providers) {
+      const key = provKey(p.provider) || p.provider;
+      const r = by.get(key) || { label: t('sum.provider', { provider: provLabel(p.provider) }), s: 0, b: 0 };
+      r.s += p.paid; r.b += p.due;
+      by.set(key, r);
+    }
+    return [...by.values()];
   }
 
   function renderTx(due) {
@@ -316,32 +342,34 @@ export function mountExpenses(el, ctx) {
     if (b.id === 'exNewPlan') { openPlan(); return; }
     if (b.dataset.more) { expanded.add(b.dataset.more); render(); return; }
     if (b.dataset.less) { expanded.delete(b.dataset.less); render(); return; }
-    if (b.dataset.del) { deleteTx(state, b.dataset.del); await commit(t('toast.txDeleted')); return; }
-    if (b.dataset.pdel) { deletePlan(state, b.dataset.pdel); await commit(t('toast.planDeleted')); return; }
+    if (b.dataset.del) { const id = b.dataset.del; await mutate(() => { deleteTx(state, id); return t('toast.txDeleted'); }); return; }
+    if (b.dataset.pdel) { const id = b.dataset.pdel; await mutate(() => { deletePlan(state, id); return t('toast.planDeleted'); }); return; }
     if (b.dataset.cdel) {
-      const c = getCategory(state, b.dataset.cdel);
-      const label = catLabel(c, t);
-      try { deleteCategory(state, c.id); } catch (err) { toast(errMsg(err, { cat: label })); return; }
-      await commit(t('toast.catDeleted', { cat: label }));
+      const id = b.dataset.cdel;
+      const label = catLabel(getCategory(state, id), t);
+      await mutate(() => { deleteCategory(state, id); return t('toast.catDeleted', { cat: label }); }, { errVars: { cat: label } });
       return;
     }
     if (b.id === 'addCat') { await addCat(); return; }
     if (b.id === 'copyPrev') {
       const prev = latestBefore(state, cur);
       if (!prev) { toast(t('toast.noPrev')); return; }
-      const src = state.months[prev].budget;
-      ensureMonth(state, cur);
-      for (const c of liveCats(state)) setBudget(state, cur, c.id, src[c.id] || 0);
-      await commit(t('toast.copied', { month: monthName(prev, lang) }));
+      await mutate(() => {
+        const src = state.months[prev].budget;
+        ensureMonth(state, cur);
+        for (const c of liveCats(state)) setBudget(state, cur, c.id, src[c.id] || 0);
+        return t('toast.copied', { month: monthName(prev, lang) });
+      });
     }
   });
 
   async function addCat() {
     const input = $('#catName');
-    let id;
-    try { id = addCategory(state, input.value); } catch (err) { toast(errMsg(err)); input.focus(); return; }
-    input.value = '';
-    await commit(t('toast.catAdded', { cat: catLabel(getCategory(state, id), t) }));
+    const ok = await mutate(() => {
+      const id = addCategory(state, input.value);
+      return t('toast.catAdded', { cat: catLabel(getCategory(state, id), t) });
+    }, { onDone: () => { input.value = ''; } });
+    if (!ok) input.focus();
   }
 
   el.addEventListener('keydown', (e) => {
@@ -352,17 +380,18 @@ export function mountExpenses(el, ctx) {
     const x = e.target;
     if (x.dataset.pay) {
       const [pid, k] = x.dataset.pay.split(':');
-      setPaid(state, pid, Number(k), x.checked);
-      await commit(t(x.checked ? 'toast.paid' : 'toast.unpaid'));
+      const paid = x.checked;
+      await mutate(() => { setPaid(state, pid, Number(k), paid); return t(paid ? 'toast.paid' : 'toast.unpaid'); });
       return;
     }
     if (x.id !== 'incIn' && !x.dataset.b) return;
-    let h;
-    try { h = parseAmount0(x.value); } catch (err) { toast(errMsg(err)); render(); return; }
-    if (x.id === 'incIn') setIncome(state, cur, h); else setBudget(state, cur, x.dataset.b, h);
-    x.value = plain(h);
-    try { await save(state); } catch { toast(t('err.save')); }
-    render({ keepBud: true });
+    const ok = await mutate(() => {
+      const h = parseAmount0(x.value);
+      if (x.id === 'incIn') setIncome(state, cur, h); else setBudget(state, cur, x.dataset.b, h);
+      x.value = plain(h);
+      return '';
+    }, { keepBud: true });
+    if (!ok) render(); // put the stored value back into the input
   });
 
   // Swipe between months: RTL finger → right = next; LTR mirrored.
@@ -444,18 +473,18 @@ export function mountExpenses(el, ctx) {
     });
     logSheet.addEventListener('submit', async (e) => {
       e.preventDefault();
+      // Validate everything before touching the month, so a rejected entry leaves no month record.
       let amount;
       try { amount = parseAmount($('#logAmt').value); } catch (err) { toast(errMsg(err)); $('#logAmt').focus(); return; }
       const date = $('#logDate').value || defDate();
       const cat = getCategory(state, pick);
-      try {
-        if (!cat || cat.deleted || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('invalid-tx');
+      if (!cat || cat.deleted || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast(errMsg(new Error('invalid-tx'))); return; }
+      const note = $('#logNote').value.trim();
+      await mutate(() => {
         ensureMonth(state, monthOf(date)); // first write to a month creates it (auto-copy)
-        addTx(state, { catId: pick, amount, date, note: $('#logNote').value.trim() });
-      } catch (err) { toast(errMsg(err)); return; }
-      closeSheet();
-      cur = monthOf(date);
-      await commit(t('toast.logged', { amount: formatAmount(amount, lang), cat: catLabel(cat, t) }));
+        addTx(state, { catId: cat.id, amount, date, note });
+        return t('toast.logged', { amount: formatAmount(amount, lang), cat: catLabel(cat, t) });
+      }, { sheet: true, onDone: () => { cur = monthOf(date); } });
     });
     planSheet.addEventListener('click', (e) => {
       const p = e.target.closest('[data-p]');
@@ -470,14 +499,16 @@ export function mountExpenses(el, ctx) {
       let total;
       try { total = parseAmount($('#pTotal').value); } catch (err) { toast(errMsg(err)); $('#pTotal').focus(); return; }
       const n = readN();
-      const provider = prov === 'other' ? ($('#provOther').value.trim() || t('prov.other')) : t(`prov.${prov}`);
+      // Known providers are stored as canonical ids ('tabby' / 'tamara'); a custom name stays as typed.
+      const provider = prov === 'other' ? ($('#provOther').value.trim() || t('prov.other')) : prov;
       const item = $('#pItem').value.trim() || t('plan.defaultItem');
       const start = $('#pStart').value || `${cur}-01`;
-      try {
-        addPlan(state, { provider, item, total, n, start, firstPaid: $('#pFirst').checked });
-      } catch (err) { toast(errMsg(err)); if (err.message === 'invalid-months') $('#pN').focus(); return; }
-      closeSheet();
-      await commit(t('toast.planAdded', { provider, n, amount: money(paymentAmount({ total, n }, 0)) }));
+      if (!(n >= 1 && n <= 48)) { toast(errMsg(new Error('invalid-months'))); $('#pN').focus(); return; }
+      const firstPaid = $('#pFirst').checked;
+      await mutate(() => {
+        addPlan(state, { provider, item, total, n, start, firstPaid });
+        return t('toast.planAdded', { provider: provLabel(provider), n, amount: money(paymentAmount({ total, n }, 0)) });
+      }, { sheet: true });
     });
   }
 

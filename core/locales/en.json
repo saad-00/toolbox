@@ -115,5 +115,7 @@
   "err.category-has-tx": "Can’t delete “{cat}” because it has transactions",
   "err.save": "Couldn’t save on this device",
   "err.generic": "Something went wrong, please try again",
-  "home.left": "SAR {amount} left"
+  "home.left": "SAR {amount} left",
+  "err.load": "Couldn’t read your saved data on this device. Nothing was changed. Please try again.",
+  "load.retry": "Try again"
 }

@@ -7,6 +7,7 @@ import { formatAmount } from './money.js';
 import { mountExpenses, projectedSummary } from '../tools/expenses/view.js';
 import { applyPalette } from './theme.js';
 import { onRoute } from './router.js';
+import { toast } from './ui.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -18,6 +19,9 @@ let current = 'home';
 let booted = false;
 let state = null;
 let expenses = null;
+// True when the saved state could not be read: nothing may be written until a retry succeeds,
+// otherwise the first save would replace the user's real data with an empty state.
+let loadFailed = false;
 
 const DEFAULT_CATS = ['cat.housing', 'cat.bills', 'cat.mobileNet', 'cat.food', 'cat.transport',
   'cat.subscriptions', 'cat.emergency', 'cat.savings', 'cat.allowance'];
@@ -26,6 +30,7 @@ const DEFAULT_CATS = ['cat.housing', 'cat.bills', 'cat.mobileNet', 'cat.food', '
 export function initialState() { return createState(DEFAULT_CATS); }
 
 async function save(s) {
+  if (loadFailed) return;
   await saveState(s);
 }
 
@@ -37,7 +42,36 @@ function updateHomeSub() {
   e.textContent = t('home.left', { amount: formatAmount(sum.remainingNow, getLang()) });
 }
 
+function renderLoadError() {
+  const el = document.getElementById('view-expenses');
+  el.dataset.mounted = '1';
+  el.innerHTML = `<div class="card ex-loaderr" id="exLoadErr" role="alert"><h2>${esc(t('nav.expenses'))}</h2>`
+    + `<p>${esc(t('err.load'))}</p><button class="btn" type="button" id="exRetry">${esc(t('load.retry'))}</button></div>`;
+}
+
+// Reads the saved state. null = first run (fresh in-memory state); a thrown error = read failure.
+async function readState() {
+  try {
+    const saved = await loadState();
+    state = saved || initialState();
+    loadFailed = false;
+  } catch {
+    state = null;
+    loadFailed = true;
+  }
+}
+
+async function retryLoad() {
+  await readState();
+  if (loadFailed) { toast(t('err.load')); return; }
+  document.getElementById('view-expenses').innerHTML = '';
+  ensureExpenses();
+  updateHomeSub();
+  if (current === 'expenses') $('#fab').classList.add('on');
+}
+
 function ensureExpenses() {
+  if (loadFailed) { renderLoadError(); return null; }
   if (!expenses && state) {
     expenses = mountExpenses(document.getElementById('view-expenses'), { state, save, t, lang: getLang() });
   }
@@ -90,7 +124,7 @@ function show(view) {
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   if (view === 'expenses') ensureExpenses();
-  $('#fab').classList.toggle('on', view === 'expenses');
+  $('#fab').classList.toggle('on', view === 'expenses' && !loadFailed);
   scrollTo(0, 0);
   dispatchEvent(new CustomEvent('toolbox:route', { detail: { view } }));
 }
@@ -106,6 +140,7 @@ export function applyLanguage(lang) {
   renderHome();
   renderPlaceholders();
   if (expenses) expenses.update({ t, lang: l });
+  else if (loadFailed && document.getElementById('exLoadErr')) renderLoadError();
   updateHomeSub();
   if (booted) show(current);
 }
@@ -113,7 +148,9 @@ export function applyLanguage(lang) {
 function wire() {
   // Quick «سجّل صرف» and the floating + : Task 12 listens for 'toolbox:log' to open the log sheet.
   document.addEventListener('click', (e) => {
-    if (e.target.closest('[data-quick=log]')) {
+    if (e.target.closest('#exRetry')) {
+      retryLoad();
+    } else if (e.target.closest('[data-quick=log]')) {
       if (location.hash !== '#expenses') location.hash = '#expenses';
       dispatchEvent(new CustomEvent('toolbox:log'));
     } else if (e.target.closest('#fab')) {
@@ -132,11 +169,10 @@ function wire() {
 async function boot() {
   let settings = {};
   try { settings = (await loadSettings()) || {}; } catch { settings = {}; }
-  const [ar, en, list, saved] = await Promise.all([
+  const [ar, en, list] = await Promise.all([
     getJSON('./locales/ar.json'), getJSON('./locales/en.json'), getJSON('../tools.json').catch(() => []),
-    loadState().catch(() => null),
+    readState(),
   ]);
-  state = saved || initialState();
   loadLocales(ar, en);
   tools = Array.isArray(list) ? list : [];
   const palette = settings.palette === 'custom' && settings.customPalette ? settings.customPalette : (settings.palette || 'graphite');

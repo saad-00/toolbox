@@ -13,9 +13,11 @@ export function parseAmount(input) {
   return halalas;
 }
 
-const fmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const whole = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+const cents = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// Formats integer halalas with latin digits for both languages.
+// Formats integer halalas with latin digits for both languages: two decimals whenever there are
+// halalas (153020 → "1,530.20"), none for whole riyals (100000 → "1,000").
 export function formatAmount(halalas, lang) {
-  return fmt.format(halalas / 100);
+  return (halalas % 100 ? cents : whole).format(halalas / 100);
 }
