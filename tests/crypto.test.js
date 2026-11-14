@@ -45,3 +45,27 @@ test('~1 MB state round trip', async () => {
   const e = await encryptJSON(big, 'pw');
   assert.deepEqual(await decryptJSON(e, 'pw'), big);
 });
+
+test('passphrase is NFC-normalised', async () => {
+  const e = await encryptJSON({ x: 1 }, 'é');
+  assert.deepEqual(await decryptJSON(e, 'é'), { x: 1 });
+  const e2 = await encryptJSON({ x: 2 }, 'كلمة');
+  assert.deepEqual(await decryptJSON(e2, 'كلمة'.normalize('NFD')), { x: 2 });
+});
+
+test('tampered ciphertext, bad base64, wrong sizes, other iter', async () => {
+  const e = await encryptJSON({ x: 1 }, 'pw');
+  const bytes = Uint8Array.from(atob(e.ct), c => c.charCodeAt(0));
+  bytes[0] ^= 1;
+  const ct = btoa(String.fromCharCode(...bytes));
+  await assert.rejects(decryptJSON({ ...e, ct }, 'pw'), /wrong-passphrase/);
+  await assert.rejects(decryptJSON({ ...e, ct: '***' }, 'pw'), /bad-envelope/);
+  await assert.rejects(decryptJSON({ ...e, salt: btoa('short') }, 'pw'), /bad-envelope/);
+  await assert.rejects(decryptJSON({ ...e, iv: btoa('short') }, 'pw'), /bad-envelope/);
+  await assert.rejects(decryptJSON({ ...e, ct: btoa('tiny') }, 'pw'), /bad-envelope/);
+  await assert.rejects(decryptJSON({ ...e, iter: 600001 }, 'pw'), /bad-envelope/);
+});
+
+test('unserialisable input', async () => {
+  await assert.rejects(encryptJSON(undefined, 'pw'), /invalid-input/);
+});

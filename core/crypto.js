@@ -19,7 +19,7 @@ function fromB64(str) {
 }
 
 async function deriveKey(passphrase, salt, iter) {
-  const base = await subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  const base = await subtle.importKey('raw', new TextEncoder().encode(passphrase.normalize('NFC')), 'PBKDF2', false, ['deriveKey']);
   return subtle.deriveKey(
     { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iter },
     base,
@@ -35,10 +35,12 @@ function checkPassphrase(p) {
 
 export async function encryptJSON(obj, passphrase) {
   checkPassphrase(passphrase);
+  const json = JSON.stringify(obj);
+  if (json === undefined) throw new Error('invalid-input');
   const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(passphrase, salt, ITER);
-  const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(obj))));
+  const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(json)));
   return { v: 1, kdf: KDF, iter: ITER, salt: toB64(salt), iv: toB64(iv), ct: toB64(ct) };
 }
 
@@ -46,12 +48,13 @@ export async function decryptJSON(envelope, passphrase) {
   checkPassphrase(passphrase);
   const e = envelope;
   if (!e || typeof e !== 'object' || e.v !== 1 || e.kdf !== KDF ||
-      !Number.isInteger(e.iter) || e.iter < ITER ||
+      e.iter !== ITER ||
       typeof e.salt !== 'string' || typeof e.iv !== 'string' || typeof e.ct !== 'string') {
     throw new Error('bad-envelope');
   }
   let salt, iv, ct;
   try { salt = fromB64(e.salt); iv = fromB64(e.iv); ct = fromB64(e.ct); } catch { throw new Error('bad-envelope'); }
+  if (salt.length !== 16 || iv.length !== 12 || ct.length < 16) throw new Error('bad-envelope');
   let plain;
   try {
     const key = await deriveKey(passphrase, salt, e.iter);
