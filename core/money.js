@@ -6,11 +6,10 @@ export function parseAmount(input) {
     .trim()
     .replace(/[٠-٩]/g, (d) => DIGITS[d])
     .replace(/٬/g, ',')
-    .replace(/٫/g, '.')
-    .replace(/,/g, '');
-  if (!/^\d+(\.\d{1,2})?$/.test(s)) throw new Error('invalid-amount');
-  const halalas = Math.round(parseFloat(s) * 100);
-  if (!(halalas > 0)) throw new Error('invalid-amount');
+    .replace(/٫/g, '.');
+  if (!/^(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?$/.test(s)) throw new Error('invalid-amount');
+  const halalas = Math.round(parseFloat(s.replace(/,/g, '')) * 100);
+  if (!Number.isSafeInteger(halalas) || halalas <= 0) throw new Error('invalid-amount');
   return halalas;
 }
 

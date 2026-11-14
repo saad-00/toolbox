@@ -11,6 +11,10 @@ test('parses latin and arabic digits', () => {
 test('rejects empty, zero, negative, text', () => {
   for (const v of ['', '0', '-5', 'abc', '1.234']) assert.throws(() => parseAmount(v), /invalid-amount/);
 });
+test('rejects malformed comma grouping and unsafe values', () => {
+  for (const v of ['1,50', '1,5', ',,1', '1,2,3', '12345678901234567890']) assert.throws(() => parseAmount(v), /invalid-amount/);
+  assert.equal(parseAmount('1,234,567.89'), 123456789);
+});
 test('formats', () => {
   assert.equal(formatAmount(173025, 'ar'), '1,730.25');
   assert.equal(formatAmount(100000, 'en'), '1,000');
