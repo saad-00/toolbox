@@ -1,6 +1,6 @@
 // Toolbox service worker: precache the shell, serve same-origin GETs cache-first.
 // Bump VERSION whenever shell files change so clients pick up the new files.
-const VERSION = 'toolbox-v1';
+const VERSION = 'toolbox-v2';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'tools.json',
   'icons/icon-192.png', 'icons/icon-512.png',
@@ -9,6 +9,10 @@ const SHELL = [
   'core/merge.js', 'core/crypto.js', 'core/backup.js', 'core/sync.js',
   'core/locales/ar.json', 'core/locales/en.json',
   'tools/expenses/calc.js', 'tools/expenses/installments.js',
+  'tools/expenses/view.js', 'tools/expenses/expenses.css',
+  'fonts/alexandria.css',
+  'fonts/alexandria-arabic-400-normal.woff2', 'fonts/alexandria-arabic-600-normal.woff2', 'fonts/alexandria-arabic-700-normal.woff2',
+  'fonts/alexandria-latin-400-normal.woff2', 'fonts/alexandria-latin-600-normal.woff2', 'fonts/alexandria-latin-700-normal.woff2',
 ];
 
 self.addEventListener('install', (e) => {
@@ -26,7 +30,7 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.hostname === 'api.github.com') return; // always network, never cached
-  if (url.origin !== self.location.origin) return; // other origins (fonts) go to the network
+  if (url.origin !== self.location.origin) return; // other origins go to the network
   e.respondWith(
     caches.match(req, { ignoreSearch: req.mode === 'navigate' }).then((hit) => hit || fetch(req).then((res) => {
       if (res.ok && res.type === 'basic') {

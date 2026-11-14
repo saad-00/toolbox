@@ -1,0 +1,22 @@
+/* Expenses screens. The shared glass pieces (hero, tabs, mstrip, chips, sheets, .brow …) live in
+   core/theme.css; this file only carries what the prototype set inline, as classes. */
+#view-expenses #mToday{min-height:40px;padding:8px 14px}
+.ex-new{margin:10px 0 0}
+.ex-small{min-height:40px;padding:8px 14px}
+.ex-plans-head{margin-bottom:6px}.ex-plans-head h2{margin:0}
+.ex-copy{margin-top:14px}
+.ex-wide{width:100%}
+.ex-nowrap{white-space:nowrap}
+.ex-gap{width:42px;flex:none}
+.ex-prog{border:0!important;padding:6px 0 0!important}
+.sheet .sheet-h{margin:0}
+.ex-logrow{margin-bottom:14px}
+.ex-date,.ex-note{flex:1}
+.ex-provs{margin:6px 0 0}
+.ex-nchips{margin-top:-4px}
+.ex-first{border:0!important}
+.ex-prev{margin:4px 0 14px}
+#view-expenses .mscroll button{min-width:64px}
+@media(max-width:420px){html:lang(en) #view-expenses .tabs button{font-size:12.5px;padding-inline:2px}}
+@media(max-width:374px){html:lang(en) #view-expenses .tabs button{font-size:11.5px}}
+#planSheet .two{align-items:end}

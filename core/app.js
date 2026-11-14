@@ -1,6 +1,10 @@
 // Shell boot: settings → language → palette → service worker → hub → routing.
 import { detectLang, setLang, getLang, t, dir, loadLocales } from './i18n.js';
-import { loadSettings } from './store.js';
+import { loadSettings, loadState, saveState } from './store.js';
+import { createState } from './model.js';
+import { monthOf, todayLocal } from './months.js';
+import { formatAmount } from './money.js';
+import { mountExpenses, projectedSummary } from '../tools/expenses/view.js';
 import { applyPalette } from './theme.js';
 import { onRoute } from './router.js';
 
@@ -12,6 +16,33 @@ const NAV = [['home', 'nav.home', 'home'], ['expenses', 'nav.expenses', 'wallet'
 let tools = [];
 let current = 'home';
 let booted = false;
+let state = null;
+let expenses = null;
+
+const DEFAULT_CATS = ['cat.housing', 'cat.bills', 'cat.mobileNet', 'cat.food', 'cat.transport',
+  'cat.subscriptions', 'cat.emergency', 'cat.savings', 'cat.allowance'];
+
+// First-run state (in memory only; written on the first change). Task 13's welcome screen replaces this.
+export function initialState() { return createState(DEFAULT_CATS); }
+
+async function save(s) {
+  await saveState(s);
+}
+
+// Hub card line: what is left this month.
+function updateHomeSub() {
+  const e = document.getElementById('home-sub-expenses');
+  if (!e || !state) return;
+  const sum = projectedSummary(state, monthOf(todayLocal()));
+  e.textContent = t('home.left', { amount: formatAmount(sum.remainingNow, getLang()) });
+}
+
+function ensureExpenses() {
+  if (!expenses && state) {
+    expenses = mountExpenses(document.getElementById('view-expenses'), { state, save, t, lang: getLang() });
+  }
+  return expenses;
+}
 
 async function getJSON(rel) {
   const r = await fetch(new URL(rel, import.meta.url));
@@ -58,6 +89,7 @@ function show(view) {
     a.classList.toggle('on', on);
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
+  if (view === 'expenses') ensureExpenses();
   $('#fab').classList.toggle('on', view === 'expenses');
   scrollTo(0, 0);
   dispatchEvent(new CustomEvent('toolbox:route', { detail: { view } }));
@@ -73,6 +105,8 @@ export function applyLanguage(lang) {
   renderNav();
   renderHome();
   renderPlaceholders();
+  if (expenses) expenses.update({ t, lang: l });
+  updateHomeSub();
   if (booted) show(current);
 }
 
@@ -83,17 +117,26 @@ function wire() {
       if (location.hash !== '#expenses') location.hash = '#expenses';
       dispatchEvent(new CustomEvent('toolbox:log'));
     } else if (e.target.closest('#fab')) {
-      dispatchEvent(new CustomEvent('toolbox:log'));
+      dispatchEvent(new CustomEvent('toolbox:log', { detail: { source: 'fab' } }));
     }
   });
+  // The FAB opens «أضف قسط» on the installments tab; the hub's quick button always opens «سجّل صرف».
+  addEventListener('toolbox:log', (e) => {
+    const x = ensureExpenses();
+    if (!x) return;
+    if (e.detail && e.detail.source === 'fab') x.fab(); else x.openLog();
+  });
+  addEventListener('toolbox:expenses-changed', updateHomeSub);
 }
 
 async function boot() {
   let settings = {};
   try { settings = (await loadSettings()) || {}; } catch { settings = {}; }
-  const [ar, en, list] = await Promise.all([
+  const [ar, en, list, saved] = await Promise.all([
     getJSON('./locales/ar.json'), getJSON('./locales/en.json'), getJSON('../tools.json').catch(() => []),
+    loadState().catch(() => null),
   ]);
+  state = saved || initialState();
   loadLocales(ar, en);
   tools = Array.isArray(list) ? list : [];
   const palette = settings.palette === 'custom' && settings.customPalette ? settings.customPalette : (settings.palette || 'graphite');
