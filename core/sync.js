@@ -4,6 +4,7 @@
 // overwritten by a state that was not merged with it. Input state is never mutated.
 import { encryptJSON, decryptJSON } from './crypto.js';
 import { mergeStates } from './merge.js';
+import { validState } from './validate.js';
 
 const API = 'https://api.github.com';
 const ACCEPT = 'application/vnd.github+json';
@@ -77,6 +78,7 @@ async function pull(fetchFn, url, headers, passphrase) {
     try { text = b64ToUtf8(content); } catch { throw new Error('bad-envelope'); }
   }
   const remote = await decryptJSON(parseEnvelope(text), passphrase);
+  if (!validState(remote)) throw new Error('bad-envelope'); // malformed records: never merged or uploaded
   return { sha: meta.sha, remote };
 }
 

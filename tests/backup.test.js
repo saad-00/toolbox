@@ -62,3 +62,13 @@ test('reminder after 30 days', () => {
   assert.equal(needsBackupReminder(0, 30 * day), false);
   assert.equal(needsBackupReminder(0, 31 * day), true);
 });
+
+test('a malformed state inside a backup is refused (nothing merged)', () => {
+  const s = mk(1000);
+  const { s: b } = withTx(mk(1000), 'Food', 500);
+  b.tx[0].amount = 12.5;
+  assert.throws(() => importBackup(s, exportBackup(b).json), /bad-backup/);
+  const m = withTx(mk(1000), 'Food', 500).s;
+  m.months['2026-99'] = { income: 1, budget: {}, updatedAt: 1 };
+  assert.throws(() => importBackup(s, exportBackup(m).json), /bad-backup/);
+});

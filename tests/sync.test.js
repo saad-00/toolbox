@@ -271,3 +271,13 @@ test('pullRemote maps errors like syncNow and never PUTs', async () => {
   await assert.rejects(pullRemote({ token: 't', passphrase: PASS, fetch: off.fetch }), /offline/);
   assert.equal(gh.puts.length + bad.puts.length, 0);
 });
+
+test('a decrypted but malformed remote is bad-envelope and never pushes', async () => {
+  const { s: local } = mkState('Food', 100);
+  const { s: remote } = mkState('Rent', 200);
+  remote.plans.push({ id: 'p', provider: 'x', item: 'y', total: 100, n: 60, start: '2026-11-01', paid: [], deleted: false, updatedAt: 1 });
+  const fake = fakeGitHub(await encryptJSON(remote, PASS));
+  await assert.rejects(syncNow({ state: local, token: 't', passphrase: PASS, fetch: fake.fetch }), /bad-envelope/);
+  await assert.rejects(pullRemote({ token: 't', passphrase: PASS, fetch: fake.fetch }), /bad-envelope/);
+  assert.equal(fake.puts.length, 0);
+});

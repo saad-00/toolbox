@@ -1,5 +1,6 @@
 // Backup export/import. Pure. Import always merges into the current state, never replaces it.
 import { mergeStates } from './merge.js';
+import { validState } from './validate.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -13,10 +14,7 @@ export function importBackup(current, json) {
   let b;
   try { b = JSON.parse(json); } catch { throw new Error('bad-backup'); }
   const s = b && b.state;
-  const ok = b && typeof b === 'object' && b.kind === 'toolbox-backup' && b.v === 1
-    && s && typeof s === 'object'
-    && Array.isArray(s.cats) && Array.isArray(s.tx) && Array.isArray(s.plans)
-    && s.months && typeof s.months === 'object' && !Array.isArray(s.months);
+  const ok = b && typeof b === 'object' && b.kind === 'toolbox-backup' && b.v === 1 && validState(s);
   if (!ok) throw new Error('bad-backup');
   return mergeStates(current, s);
 }
