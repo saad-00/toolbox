@@ -30,7 +30,8 @@ test('state shape, month derived from date, updatedAt from clock', () => {
   const s = createState(['cat.a', 'cat.b']);
   assert.deepEqual([s.v, s.months, s.tx, s.plans], [1, {}, [], []]);
   assert.deepEqual(s.cats.map(c => c.order), [1, 2]);
-  assert.equal(s.cats[0].updatedAt, 1000);
+  assert.equal(s.cats[0].updatedAt, 0); // untouched starters never beat a real edit
+  assert.equal(s.cats[0].id, 'cat.a');
   const c = addCategory(s, '  هدايا  ');
   assert.equal(getCategory(s, c).name, 'هدايا');
   assert.equal(getCategory(s, c).order, 3);
@@ -66,4 +67,39 @@ test('addTx validates input', () => {
     { ...ok, amount: 1.5 }, { ...ok, amount: Number.MAX_SAFE_INTEGER + 2 }, { ...ok, date: '2026-1-1' }, { ...ok, date: '' },
   ]) assert.throws(() => addTx(s, bad), /invalid-tx/);
   assert.equal(s.tx.length, 0);
+});
+
+test('starter categories have stable ids so two fresh devices merge to nine', async () => {
+  const { DEFAULT_CAT_KEYS } = await import('../core/model.js');
+  const { mergeStates } = await import('../core/merge.js');
+  setClock(() => 5000);
+  let a, b;
+  try { a = createState(DEFAULT_CAT_KEYS); } finally { setClock(); }
+  setClock(() => 9000);
+  try { b = createState(DEFAULT_CAT_KEYS); } finally { setClock(); }
+  assert.deepEqual(a.cats.map((c) => c.id), DEFAULT_CAT_KEYS);
+  assert.ok(a.cats.every((c) => c.updatedAt === 0));
+  assert.deepEqual(a, b);
+  assert.equal(mergeStates(a, b).cats.length, 9);
+});
+test('a renamed or deleted starter wins over a fresh device', async () => {
+  const { DEFAULT_CAT_KEYS } = await import('../core/model.js');
+  const { mergeStates } = await import('../core/merge.js');
+  const a = createState(DEFAULT_CAT_KEYS);
+  setClock(() => 1000);
+  try { renameCategory(a, 'cat.food', 'مطاعم'); deleteCategory(a, 'cat.bills'); } finally { setClock(); }
+  const fresh = createState(DEFAULT_CAT_KEYS);
+  for (const m of [mergeStates(a, fresh), mergeStates(fresh, a)]) {
+    assert.equal(m.cats.length, 9);
+    assert.equal(getCategory(m, 'cat.food').name, 'مطاعم');
+    assert.equal(getCategory(m, 'cat.bills').deleted, true);
+  }
+});
+test('a subset of starters keeps the same order as the full list', async () => {
+  const { DEFAULT_CAT_KEYS } = await import('../core/model.js');
+  const { mergeStates } = await import('../core/merge.js');
+  const full = createState(DEFAULT_CAT_KEYS);
+  const part = createState(['cat.food', 'cat.savings']);
+  assert.equal(getCategory(part, 'cat.food').order, getCategory(full, 'cat.food').order);
+  assert.deepEqual(mergeStates(full, part), mergeStates(full, full));
 });

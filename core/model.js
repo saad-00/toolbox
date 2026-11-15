@@ -10,13 +10,16 @@ export function uid() { return crypto.randomUUID(); }
 export const DEFAULT_CAT_KEYS = ['cat.housing', 'cat.bills', 'cat.mobileNet', 'cat.food', 'cat.transport',
   'cat.subscriptions', 'cat.emergency', 'cat.savings', 'cat.allowance'];
 
+// Starter categories get a fixed id (= nameKey), a fixed order (position in DEFAULT_CAT_KEYS)
+// and updatedAt 0, so the same starter created on two devices is one record when merged, and
+// any real rename/delete made anywhere wins over an untouched starter.
 export function createState(defaultCatKeys = []) {
-  const t = now();
   return {
     v: 1,
-    cats: defaultCatKeys.map((nameKey, i) => ({
-      id: uid(), name: null, nameKey, order: i + 1, deleted: false, updatedAt: t,
-    })),
+    cats: defaultCatKeys.map((nameKey, i) => {
+      const k = DEFAULT_CAT_KEYS.indexOf(nameKey);
+      return { id: nameKey, name: null, nameKey, order: k >= 0 ? k + 1 : i + 1, deleted: false, updatedAt: 0 };
+    }),
     months: {},
     tx: [],
     plans: [],
