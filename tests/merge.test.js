@@ -142,3 +142,19 @@ test('mergeForSave: live wins ties and keeps its order; stored-only records are 
   assert.equal(m.plans[0].paid[0], true);
   assert.equal(m.tx.length, 1);
 });
+
+test('a category deleted on one device is restored when the other device spent in it', () => {
+  const a = base(); const b = clone(a);
+  at(10, () => { a.cats[0].deleted = true; a.cats[0].updatedAt = 10; }); // a: delete (no tx there)
+  const id = at(5, () => addTx(b, { catId: 'c1', amount: 700, date: '2026-11-03', note: '' }));
+  for (const m of [mergeStates(a, b), mergeStates(b, a), mergeForSave(a, b)]) {
+    const c = m.cats.find((x) => x.id === 'c1');
+    assert.equal(c.deleted, false);
+    assert.equal(c.updatedAt, 10);
+    assert.equal(m.tx.find((x) => x.id === id).deleted, false);
+  }
+  assert.deepEqual(norm(mergeStates(a, b)), norm(mergeStates(b, a)));
+  // a deleted tx does not hold the category
+  const c2 = clone(b); c2.tx[0].deleted = true; c2.tx[0].updatedAt = 6;
+  assert.equal(mergeStates(a, c2).cats.find((x) => x.id === 'c1').deleted, true);
+});

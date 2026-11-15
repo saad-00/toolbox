@@ -51,11 +51,17 @@ export function mergeStates(a, b, { orPaid: useOr = true, tieB = false, keepOrde
   for (const k of new Set([...Object.keys(ma), ...Object.keys(mb)])) {
     months[k] = copy(ma[k] && mb[k] ? pick(ma[k], mb[k], tieB) : (ma[k] || mb[k]));
   }
+  const cats = mergeList(a.cats, b.cats, null, lo);
+  const tx = mergeList(a.tx, b.tx, null, lo);
+  // A category deleted on one device while another spent in it: undelete it (updatedAt stays the
+  // max) so that spending never vanishes from the summary.
+  const used = new Set(tx.filter((x) => !x.deleted).map((x) => x.catId));
+  for (const c of cats) if (c.deleted && used.has(c.id)) c.deleted = false;
   return {
     v: Math.max(a.v || 0, b.v || 0),
-    cats: mergeList(a.cats, b.cats, null, lo),
+    cats,
     months,
-    tx: mergeList(a.tx, b.tx, null, lo),
+    tx,
     plans: mergeList(a.plans, b.plans, useOr ? orPaid : null, lo),
   };
 }
