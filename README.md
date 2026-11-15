@@ -15,10 +15,10 @@
 
 1. أنشئ مستودعاً **خاصاً (Private)** باسم `saad-00/toolbox-data` على GitHub.
 2. من GitHub: Settings ← Developer settings ← Personal access tokens ← **Fine-grained tokens** ← Generate new token.
-3. اجعل **Repository access** = Only select repositories ← `toolbox-data` وحده.
+3. اجعل **Resource owner** = حسابك (`saad-00`)، و**Repository access** = Only select repositories ← `toolbox-data` وحده.
 4. في **Permissions** ← Repository permissions ← **Contents: Read and write**.
-5. اجعل مدة الانتهاء (Expiration) **سنة واحدة**، ثم انسخ المفتاح.
-6. افتح التطبيق ← **الإعدادات**، والصق المفتاح واكتب **كلمة السر** (مرة واحدة على كل جهاز). المفتاح يُحفظ على الجهاز فقط، وكلمة السر لا تُرفع أبداً.
+5. في مدة الانتهاء اختر **Expiration ← Custom** ثم حدّد تاريخاً **بعد سنة من اليوم** (لا يوجد خيار جاهز «سنة»)، ثم انسخ المفتاح.
+6. افتح التطبيق ← **الإعدادات**، والصق المفتاح واكتب **كلمة السر** (مرة واحدة على كل جهاز). المفتاح وكلمة السر يُحفظان على هذا الجهاز فقط، ولا يُرفعان أبداً.
 
 > **تحذير:** إذا نسيت كلمة السر فلن يمكن فك تشفير النسخة المرفوعة ولا استرجاعها. احتفظ بنسخة احتياطية (من الإعدادات) وبكلمة السر في مكان آمن.
 
@@ -63,10 +63,10 @@ npx playwright test      # اختبارات e2e؛ متغير PW_CHROME يحدد 
 
 1. Create a **private** repository named `saad-00/toolbox-data` on GitHub.
 2. GitHub: Settings > Developer settings > Personal access tokens > **Fine-grained tokens** > Generate new token.
-3. **Repository access:** Only select repositories > `toolbox-data` only.
+3. **Resource owner:** your account (`saad-00`). **Repository access:** Only select repositories > `toolbox-data` only.
 4. **Permissions** > Repository permissions > **Contents: Read and write**.
-5. Set **Expiration** to **1 year**, then copy the token.
-6. Open the app > **Settings**, paste the token and enter your **passphrase** (once per device). The token is stored on the device only; the passphrase is never stored or uploaded.
+5. For **Expiration** choose **Custom** and pick the date **one year from today** (there is no "1 year" preset), then copy the token.
+6. Open the app > **Settings**, paste the token and enter your **passphrase** (once per device). The token and the passphrase are stored on this device only and are never uploaded.
 
 > **Warning:** if you forget the passphrase, the synced copy cannot be decrypted or recovered. Keep a backup (from Settings) and store the passphrase somewhere safe.
 

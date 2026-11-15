@@ -95,3 +95,28 @@ test('manifest and service worker', async ({ page, request }) => {
   const keys = await page.evaluate(async () => { await navigator.serviceWorker.ready; for (let i = 0; i < 50; i++) { const k = await caches.keys(); if (k.length) return k; await new Promise((r) => setTimeout(r, 100)); } return []; });
   expect(keys).toEqual(['toolbox-v6']);
 });
+
+test('content security policy is set and nothing violates it', async ({ page }) => {
+  const violations = [];
+  page.on('console', (m) => { if (/Content Security Policy/i.test(m.text())) violations.push(m.text()); });
+  await page.addInitScript(() => {
+    window.__csp = [];
+    document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
+  });
+  await ready(page);
+  const csp = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute('content');
+  expect(csp).toContain("default-src 'self'");
+  expect(csp).toContain("script-src 'self'");
+  expect(csp).toContain('connect-src \'self\' https://api.github.com');
+  // walk the main screens and open a sheet
+  await page.goto('./#expenses');
+  await expect(page.locator('#exLeft')).toBeVisible();
+  await page.locator('#fab').click();
+  await expect(page.locator('#logSheet')).toHaveClass(/\bon\b/);
+  await page.goto('./#prefs');
+  await expect(page.locator('#view-prefs')).toBeVisible();
+  await expect(page.locator('#view-prefs')).not.toBeEmpty();
+  expect(await page.evaluate(() => window.__csp)).toEqual([]);
+  expect(violations).toEqual([]);
+  expect(await page.evaluate(() => document.fonts.check('16px Alexandria'))).toBe(true);
+});
