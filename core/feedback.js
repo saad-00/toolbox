@@ -3,12 +3,14 @@
 // in the code. Messages that cannot be sent (offline, network error) wait in an outbox and are
 // retried later. Nothing from the user's expenses is ever included.
 
-export const APP_VERSION = 'v10'; // keep equal to sw.js VERSION ('toolbox-' + APP_VERSION); unit-tested
+import { APP_VERSION } from './version.js';
+
 export const ENDPOINT = 'https://api.web3forms.com/submit';
 export const ACCESS_KEY = '268ee1a3-cec2-4742-9d3c-1a73867d1bfd';
 export const KINDS = ['tool', 'bug', 'idea'];
 export const MAX_MESSAGE = 1000;
 export const MAX_CONTACT = 120;
+export const MAX_NAME = 60;
 export const MAX_OUTBOX = 20;
 export const MAX_TRIES = 5;
 
@@ -27,14 +29,15 @@ export function deviceInfo(nav = globalThis.navigator, scr = globalThis.screen) 
 }
 
 // Validates and normalises a message. Throws Error('feedback-empty' | 'feedback-kind').
-export function makeMessage({ kind, message, contact = '', lang = 'ar', device = '' }, now = Date.now()) {
+export function makeMessage({ kind, message, name = '', contact = '', lang = 'ar', device = '' }, now = Date.now()) {
   if (!KINDS.includes(kind)) throw new Error('feedback-kind');
   const text = String(message ?? '').trim().slice(0, MAX_MESSAGE);
   if (text.length < 3) throw new Error('feedback-empty');
-  const who = String(contact ?? '').trim().slice(0, MAX_CONTACT);
+  const nm = String(name ?? '').trim().slice(0, MAX_NAME);
+  const how = String(contact ?? '').trim().slice(0, MAX_CONTACT);
   return {
     id: `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    kind, message: text, contact: who, lang: lang === 'en' ? 'en' : 'ar',
+    kind, message: text, name: nm, contact: how, lang: lang === 'en' ? 'en' : 'ar',
     device: kind === 'bug' ? String(device || '') : '',
     version: APP_VERSION, createdAt: now,
   };
@@ -45,9 +48,10 @@ export function toPayload(msg) {
   const body = {
     access_key: ACCESS_KEY,
     subject: `${SUBJECT[msg.kind]} — أدواتي`,
-    from_name: msg.contact || 'أدواتي',
+    from_name: msg.name || 'أدواتي',
     'النوع': SUBJECT[msg.kind],
     'الرسالة': msg.message,
+    'الاسم': msg.name || '—',
     'للتواصل': msg.contact || '—',
     'لغة التطبيق': msg.lang,
     'نسخة التطبيق': msg.version,

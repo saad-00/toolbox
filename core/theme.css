@@ -201,3 +201,25 @@ details .btn{margin-top:12px}
 .fb-meta svg{width:16px;height:16px;flex:none;margin-top:2px}
 .fb .btn{width:100%}.fb .btn[disabled]{opacity:.45}
 .fb-hp{position:absolute!important;width:1px;height:1px;opacity:0;pointer-events:none;inset-inline-start:-9999px}
+
+.fb textarea::placeholder,.fb input::placeholder{color:var(--sub);opacity:1}
+/* «تم التحديث» banner */
+.upd{display:flex;align-items:center;gap:12px;border-radius:18px;padding:11px 12px;margin-bottom:14px;background:var(--glass2);border:1px solid var(--edge);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);animation:updIn 420ms cubic-bezier(.23,1,.32,1)}
+@keyframes updIn{from{opacity:0;transform:translateY(-6px)}}
+@media (prefers-reduced-motion:reduce){.upd{animation:none}}
+.upd .dot{font-size:18px;flex:none}.upd .txt{flex:1;min-width:0}.upd b{display:block;font-size:14px}.upd small{display:block;font-size:12px;color:var(--sub);line-height:1.5}
+.upd .go{flex:none;border:0;border-radius:12px;padding:8px 12px;min-height:38px;background:var(--solid);color:var(--solid-ink);font:inherit;font-weight:700;font-size:13px;white-space:nowrap}
+.upd .x{flex:none;border:0;background:none;color:var(--sub);font-size:16px;width:34px;height:34px;border-radius:10px}
+/* settings: version row */
+.ver{margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border-radius:18px;padding:14px 16px;color:inherit;font:inherit;background:var(--glass);border:1px solid var(--edge);text-align:start}
+.ver small{color:var(--sub);font-size:13px}.ver .lnk{font-weight:700;font-size:14px}
+/* «وش الجديد» timeline */
+.wn{list-style:none;margin:0;padding:0}
+.wn>li{position:relative;padding-bottom:18px;padding-inline-start:22px}
+.wn>li::before{content:"";position:absolute;inset-inline-start:0;top:7px;width:10px;height:10px;border-radius:50%;background:var(--glass2);box-shadow:inset 0 0 0 1px var(--edge)}
+.wn>li::after{content:"";position:absolute;inset-inline-start:4.5px;top:21px;bottom:0;width:1px;background:var(--edge)}
+.wn>li:last-child::after{display:none}
+.wn>li.new::before{background:var(--solid)}
+.wn .v{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.wn .v b{font-size:16px}.wn .v small{color:var(--sub);font-size:12px}
+.wn .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--solid);color:var(--solid-ink)}
+.wn ul{margin:6px 0 0;padding-inline-start:18px;font-size:14px;line-height:1.75}

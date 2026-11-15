@@ -35,12 +35,13 @@ test('home entry opens «راسلنا»; a bug report is sent with device info a
   await expect(page.locator('#fbMeta')).toBeVisible();
   await expect(page.locator('#fbMsg')).toHaveAttribute('placeholder', /وش صار/);
   await page.locator('#fbMsg').fill('لما أضغط سجّل ما يحفظ');
-  await page.locator('#fbWho').fill('سعد');
+  await page.locator('#fbName').fill('سعد');
+  await page.locator('#fbContact').fill('@saad');
   await page.locator('#fbSend').click();
   await expect(sheet).not.toHaveClass(/\bon\b/);
   await expect(page.locator('#toast')).toContainText('وصلت رسالتك');
   expect(bodies).toHaveLength(1);
-  expect(bodies[0]).toMatchObject({ access_key: '268ee1a3-cec2-4742-9d3c-1a73867d1bfd', 'الرسالة': 'لما أضغط سجّل ما يحفظ', 'للتواصل': 'سعد', from_name: 'سعد', botcheck: false });
+  expect(bodies[0]).toMatchObject({ access_key: '268ee1a3-cec2-4742-9d3c-1a73867d1bfd', 'الرسالة': 'لما أضغط سجّل ما يحفظ', 'الاسم': 'سعد', 'للتواصل': '@saad', from_name: 'سعد', botcheck: false });
   expect(bodies[0].subject).toContain('عطل');
   expect(bodies[0]['الجهاز']).toBeTruthy();
   // reopened: fresh form, back to «طلب أداة», no device line
@@ -60,6 +61,7 @@ test('a suggestion carries no device info and the name stays optional', async ({
   await expect(page.locator('#toast')).toContainText('وصلت رسالتك');
   expect(bodies[0]['الجهاز']).toBeUndefined();
   expect(bodies[0]['للتواصل']).toBe('—');
+  expect(bodies[0]['الاسم']).toBe('—');
   expect(bodies[0].subject).toContain('اقتراح');
 });
 
@@ -98,4 +100,37 @@ test('English labels', async ({ page }) => {
   await page.locator('#fbOpen').click();
   await expect(page.locator('#fbSheet h2')).toHaveText('Contact us');
   await expect(page.locator('#fbSheet [data-k=bug]')).toContainText('Bug');
+});
+
+test('update banner: shown once to an existing user, «وش الجديد» lists releases, dismissal sticks', async ({ page }) => {
+  await seed(page);
+  const banner = page.locator('#updBanner .upd');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText(/تم التحديث إلى\s1\.4/);
+  await banner.locator('[data-wn]').click();
+  const wn = page.locator('#wnSheet');
+  await expect(wn).toHaveClass(/\bon\b/);
+  await expect(wn.locator('.wn > li')).toHaveCount(5);
+  await expect(wn.locator('.wn > li').first()).toContainText('الأحدث');
+  await expect(wn.locator('.wn > li').first()).toContainText('1.4');
+  await expect(banner).toHaveCount(0);
+  await expect.poll(() => page.evaluate(async () => (await (await import('./core/store.js')).loadSettings()).seenVersion)).toBe('1.4');
+  await page.reload();
+  await expect(page.locator('#fbOpen')).toBeVisible();
+  await expect(page.locator('#updBanner .upd')).toHaveCount(0);
+  // still reachable from Settings
+  await page.goto('./#prefs');
+  await expect(page.locator('#view-prefs .ver')).toContainText('1.4');
+  await page.locator('#view-prefs .ver').click();
+  await expect(page.locator('#wnSheet')).toHaveClass(/\bon\b/);
+});
+
+test('update banner ✕ hides it for good', async ({ page }) => {
+  await seed(page);
+  await page.locator('#updDismiss').click();
+  await expect(page.locator('#updBanner .upd')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(async () => (await (await import('./core/store.js')).loadSettings()).seenVersion)).toBe('1.4');
+  await page.reload();
+  await expect(page.locator('#fbOpen')).toBeVisible();
+  await expect(page.locator('#updBanner .upd')).toHaveCount(0);
 });

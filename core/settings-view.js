@@ -5,6 +5,7 @@
 import { PALETTES } from './theme.js';
 import { exportBackup, importBackup } from './backup.js';
 import { toast } from './ui.js';
+import { APP_VERSION } from './version.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const DEFAULT_CUSTOM = { bg: '#101828', b1: '#ff7a59', b2: '#7c5cff', b3: '#00c2a8' };
@@ -62,7 +63,8 @@ export function mountSettings(el, ctx) {
    <div class="row"><button class="btn" type="button" id="sSyncNow">${esc(t('sync.now'))}</button><button class="btn sec" type="button" id="sStop">${esc(t('sync.stop'))}</button></div>
   </details>
  </div>
-</div>`;
+</div>
+<button class="ver" type="button" data-wn><span><small>${esc(t('set.version'))}</small> <b dir="ltr">${esc(APP_VERSION)}</b></span><span class="lnk">${esc(t('set.whatsNew'))}</span></button>`;
     $('#sToken').value = settings.token || '';
     $('#sPass').value = settings.passphrase || '';
     renderPalette();

@@ -15,6 +15,8 @@ import { createSyncScheduler } from './autosync.js';
 import { mountSettings } from './settings-view.js';
 import { mountWelcome } from '../onboarding/welcome.js';
 import { createFeedback } from './feedback-view.js';
+import { createWhatsNew } from './whatsnew-view.js';
+import { APP_VERSION } from './version.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -28,6 +30,7 @@ let state = null;
 let expenses = null;
 let prefs = null;
 let feedback = null; // «راسلنا» sheet, created on first use
+let whatsNew = null; // «وش الجديد» sheet
 // True when the saved state could not be read: nothing may be written until a retry succeeds,
 // otherwise the first save would replace the user's real data with an empty state.
 let loadFailed = false;
@@ -214,11 +217,32 @@ function renderHome() {
     return `<div class="tool" data-tool="${esc(tool.id)}">${link}${quick}</div>`;
   }).join('');
   $('#view-home').innerHTML = `<div class="row"><h1>${esc(t('app.name'))}</h1></div>`
-    + `<p class="lead">${esc(t('home.lead'))}</p><div id="homeBanner"></div><div class="tools">${cards}</div>`
+    + `<p class="lead">${esc(t('home.lead'))}</p><div id="updBanner"></div><div id="homeBanner"></div><div class="tools">${cards}</div>`
     + `<button class="fb-entry" type="button" id="fbOpen"><span class="ic">${icon('chat')}</span>`
     + `<span><b>${esc(t('fb.entry'))}</b><small>${esc(t('fb.entrySub'))}</small></span>`
     + `<svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg></button>`;
   renderBanner();
+  renderUpdate();
+}
+
+// «تم التحديث إلى …»: once per version, for a device that had an earlier version.
+function renderUpdate() {
+  const el = document.getElementById('updBanner');
+  if (!el) return;
+  const show = settingsOk && settings.onboarded === true && settings.seenVersion !== APP_VERSION;
+  el.innerHTML = show
+    ? `<div class="upd" role="status"><span class="dot" aria-hidden="true">✨</span>`
+      + `<span class="txt"><b>${esc(t('upd.title', { v: APP_VERSION }))}</b><small>${esc(t('upd.sub'))}</small></span>`
+      + `<button class="go" type="button" data-wn>${esc(t('upd.go'))}</button>`
+      + `<button class="x" type="button" id="updDismiss" aria-label="${esc(t('upd.dismiss'))}">✕</button></div>`
+    : '';
+}
+
+function markSeen() {
+  if (settings.seenVersion === APP_VERSION) return;
+  settings.seenVersion = APP_VERSION;
+  persistSettings();
+  renderUpdate();
 }
 
 // «خذ نسخة احتياطية» reminder: local mode only, 30 days after the last backup (or after onboarding).
@@ -271,6 +295,7 @@ export function applyLanguage(lang) {
   else if (loadFailed && document.getElementById('exLoadErr')) renderLoadError();
   if (prefs) prefs.update({ t });
   if (feedback) feedback.update({ t, getLang });
+  if (whatsNew) whatsNew.update({ t, getLang });
   updateHomeSub();
   if (booted) show(current);
 }
@@ -280,6 +305,12 @@ function wire() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('#exRetry')) {
       retryLoad();
+    } else if (e.target.closest('[data-wn]')) {
+      if (!whatsNew) whatsNew = createWhatsNew({ t, getLang });
+      whatsNew.open();
+      markSeen();
+    } else if (e.target.closest('#updDismiss')) {
+      markSeen();
     } else if (e.target.closest('#fbOpen')) {
       ensureFeedback().open();
     } else if (e.target.closest('#backupDismiss')) {
@@ -341,7 +372,7 @@ function runWelcome() {
       freshStart = false;
       requestPersist();
       const { lang, mode, token, passphrase } = choices || {};
-      Object.assign(settings, { onboarded: true, onboardedAt: Date.now(), lang: lang || getLang(), mode: mode === 'sync' ? 'sync' : 'local' });
+      Object.assign(settings, { onboarded: true, onboardedAt: Date.now(), seenVersion: APP_VERSION, lang: lang || getLang(), mode: mode === 'sync' ? 'sync' : 'local' });
       if (settings.mode === 'sync') Object.assign(settings, { token, passphrase });
       await persistSettings();
       el.hidden = true;

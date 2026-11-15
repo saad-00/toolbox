@@ -24,7 +24,7 @@ async function install() {
 
 test('install precaches the shell bypassing the HTTP cache, under the new version', async () => {
   const { added, opened } = await install();
-  assert.deepEqual(opened, ['toolbox-v10']);
+  assert.deepEqual(opened, ['toolbox-v11']);
   assert.ok(added.length > 10);
   for (const r of added) {
     assert.equal(typeof r, 'object', `plain URL precached: ${r}`);

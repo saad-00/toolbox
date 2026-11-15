@@ -199,8 +199,8 @@
   "fb.k.bug": "Bug",
   "fb.k.idea": "Suggestion",
   "fb.message": "Your message",
-  "fb.contact": "Your name or number",
-  "fb.optional": "(optional, if you want a reply)",
+  "fb.contact": "How to reach you",
+  "fb.optional": "(optional)",
   "fb.ph.tool": "Which tool do you need, and what should it do?",
   "fb.ph.bug": "What happened, and where? (e.g. tapping “Log” doesn’t save)",
   "fb.ph.idea": "How could Toolbox be better?",
@@ -210,5 +210,16 @@
   "fb.sent": "Message sent — thank you 🙏",
   "fb.queued": "You’re offline — saved, it will send when you’re back ✓",
   "fb.failed": "Couldn’t send your message, try again shortly",
-  "fb.flushed": "Your saved messages were sent ({n}) ✓"
+  "fb.flushed": "Your saved messages were sent ({n}) ✓",
+  "fb.name": "Name",
+  "fb.namePh": "e.g. Saad",
+  "fb.contactPh": "Phone, e-mail or X handle",
+  "wn.title": "What’s new",
+  "wn.latest": "Latest",
+  "upd.title": "Updated to {v}",
+  "upd.sub": "See what’s new in this update",
+  "upd.go": "What’s new?",
+  "upd.dismiss": "Dismiss",
+  "set.version": "Version",
+  "set.whatsNew": "What’s new?"
 }

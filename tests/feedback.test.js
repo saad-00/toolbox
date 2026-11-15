@@ -1,19 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { makeMessage, toPayload, send, flushOutbox, enqueue, deviceInfo, APP_VERSION, ACCESS_KEY, MAX_OUTBOX, MAX_TRIES } from '../core/feedback.js';
+import { RELEASES, APP_VERSION } from '../core/version.js';
+import { makeMessage, toPayload, send, flushOutbox, enqueue, deviceInfo, ACCESS_KEY, MAX_OUTBOX, MAX_TRIES } from '../core/feedback.js';
 
-test('APP_VERSION matches the service worker version', () => {
-  const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
-  assert.match(sw, new RegExp(`VERSION = 'toolbox-${APP_VERSION}'`));
+test('APP_VERSION is the newest release, releases are newest first with ar/en notes', () => {
+  assert.equal(APP_VERSION, RELEASES[0].v);
+  const nums = RELEASES.map((r) => r.v.split('.').map(Number));
+  for (let i = 1; i < nums.length; i++) assert.ok(nums[i - 1][0] > nums[i][0] || (nums[i - 1][0] === nums[i][0] && nums[i - 1][1] > nums[i][1]), RELEASES[i].v);
+  for (const r of RELEASES) { assert.match(r.date, /^\d{4}-\d{2}-\d{2}$/); assert.ok(r.ar.length && r.ar.length === r.en.length, r.v); }
 });
 
 test('makeMessage validates kind and text, trims, and caps lengths', () => {
   assert.throws(() => makeMessage({ kind: 'x', message: 'hello' }), /feedback-kind/);
   assert.throws(() => makeMessage({ kind: 'idea', message: '  a ' }), /feedback-empty/);
-  const m = makeMessage({ kind: 'idea', message: '  فكرة حلوة  ', contact: ' سعد ', lang: 'ar', device: 'Android' }, 1000);
+  const m = makeMessage({ kind: 'idea', message: '  فكرة حلوة  ', name: ' سعد ', contact: ' 05xxxxxxxx ', lang: 'ar', device: 'Android' }, 1000);
   assert.equal(m.message, 'فكرة حلوة');
-  assert.equal(m.contact, 'سعد');
+  assert.equal(m.name, 'سعد');
+  assert.equal(m.contact, '05xxxxxxxx');
   assert.equal(m.device, '', 'device info only on bug reports');
   assert.equal(m.version, APP_VERSION);
   assert.equal(makeMessage({ kind: 'bug', message: 'x'.repeat(5000), device: 'iOS' }).message.length, 1000);
@@ -26,6 +29,8 @@ test('toPayload carries the key, a subject per kind and no empty device line', (
   assert.match(p.subject, /طلب أداة/);
   assert.equal(p['الرسالة'], 'حاسبة زكاة');
   assert.equal(p['للتواصل'], '—');
+  assert.equal(p['الاسم'], '—');
+  assert.equal(p.from_name, 'أدواتي');
   assert.equal(p['التاريخ'], '2026-11-15 17:00');
   assert.equal(p.botcheck, false);
   assert.ok(!('الجهاز' in p));

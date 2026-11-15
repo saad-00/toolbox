@@ -1,13 +1,13 @@
 // Toolbox service worker: precache the shell, serve same-origin GETs cache-first.
 // Bump VERSION whenever shell files change so clients pick up the new files.
-const VERSION = 'toolbox-v10';
+const VERSION = 'toolbox-v11';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'tools.json',
   'icons/icon-192.png', 'icons/icon-512.png',
   'core/app.js', 'core/theme.css', 'core/theme.js', 'core/router.js', 'core/ui.js',
   'core/i18n.js', 'core/store.js', 'core/model.js', 'core/months.js', 'core/money.js',
   'core/merge.js', 'core/validate.js', 'core/crypto.js', 'core/backup.js', 'core/sync.js',
-  'core/autosync.js', 'core/settings-view.js', 'core/feedback.js', 'core/feedback-view.js', 'onboarding/welcome.js',
+  'core/autosync.js', 'core/settings-view.js', 'core/feedback.js', 'core/feedback-view.js', 'core/version.js', 'core/whatsnew-view.js', 'onboarding/welcome.js',
   'core/locales/ar.json', 'core/locales/en.json',
   'tools/expenses/calc.js', 'tools/expenses/installments.js',
   'tools/expenses/view.js', 'tools/expenses/expenses.css',
