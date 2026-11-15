@@ -382,3 +382,42 @@ test.describe('English', () => {
     expect(await stored(page)).toBeNull(); // nothing written until the user writes
   });
 });
+
+test('an edit made while a save is in flight is not lost', async ({ page }) => {
+  await seed(page);
+  const s0 = await stored(page);
+  const cid = catId(s0, 'مصروف');
+  // Stall every state write: after put(), keep the transaction open ~400 ms with dummy reads.
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (v, k) {
+      const r = put.call(this, v, k);
+      if (k === 'state') {
+        window.__putSeen = true;
+        const end = performance.now() + 400;
+        const spin = () => { if (performance.now() < end) this.get('state').onsuccess = spin; };
+        spin();
+      }
+      return r;
+    };
+  });
+  // edit 1: change the budget (save 1 starts)
+  await page.evaluate((cid) => {
+    const i = document.querySelector(`[data-b="${cid}"]`);
+    i.value = '900';
+    i.dispatchEvent(new Event('change', { bubbles: true }));
+  }, cid);
+  await page.waitForFunction(() => window.__putSeen);
+  // edit 2: toggle a payment while save 1's transaction is still open
+  await page.evaluate(() => {
+    const c = [...document.querySelectorAll('input[data-pay]')].find((x) => x.closest('.due').textContent.includes('تابي'));
+    c.checked = false;
+    c.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(1500); // let both saves finish
+  await page.reload();
+  await expect(page.locator('#view-expenses')).toBeVisible();
+  const s = await stored(page);
+  expect(s.months['2026-11'].budget[cid]).toBe(90000);
+  expect(s.plans.find((p) => p.provider === 'تابي').paid[0]).toBe(false);
+});

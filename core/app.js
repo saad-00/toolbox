@@ -112,7 +112,8 @@ function rerender() {
 async function save(s) {
   if (loadFailed) return;
   const merged = await saveState(s);
-  if (s === state) adopt(merged);
+  // Live side wins: keep edits made while this save was in flight.
+  if (s === state) adopt(mergeForSave(merged, state));
   autoSyncSoon();
 }
 
@@ -134,7 +135,7 @@ async function replaceState(next, { fromSync = false } = {}) {
   adopt(next);
   let merged;
   try { merged = await saveState(state); } catch (e) { adopt(snap); throw e; }
-  adopt(merged);
+  adopt(mergeForSave(merged, state)); // keep edits made during the save
   if (!fromSync) autoSyncSoon();
   rerender();
 }
