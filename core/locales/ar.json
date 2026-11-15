@@ -14,6 +14,7 @@
   "tab.budget": "الميزانية",
   "sheet.log.title": "سجّل صرف",
   "sheet.log.submit": "سجّل",
+  "sheet.log.full": "المبلغ كامل · {amount}",
   "sheet.plan.title": "أضف قسط",
   "sheet.plan.submit": "أضف القسط",
   "toast.logged": "أُضيف {amount} ر.س إلى تم الصرف · {cat}",

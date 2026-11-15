@@ -14,6 +14,7 @@
   "tab.budget": "Budget",
   "sheet.log.title": "Log spending",
   "sheet.log.submit": "Log",
+  "sheet.log.full": "Full amount · {amount}",
   "sheet.plan.title": "Add installment",
   "sheet.plan.submit": "Add installment",
   "toast.logged": "Added SAR {amount} to spent · {cat}",

@@ -154,6 +154,7 @@ export function mountExpenses(el, ctx) {
     logSheet.innerHTML = `
 <div class="row"><h2 class="sheet-h">${esc(t('sheet.log.title'))}</h2><span class="sp"></span>${close}</div>
 <div class="amt"><input id="logAmt" type="text" inputmode="decimal" placeholder="0" aria-label="${esc(t('sheet.log.amount'))}" autocomplete="off"><span>${esc(t('currency'))}</span></div>
+<div class="ex-fullw"><button type="button" id="logFull" class="ex-full" hidden></button></div>
 <div class="chips" id="logChips" role="group" aria-label="${esc(t('sheet.log.cat'))}"></div>
 <div class="row ex-logrow"><div class="ex-date"><input type="date" id="logDate" aria-label="${esc(t('sheet.log.date'))}"></div><div class="ex-note"><input type="text" id="logNote" placeholder="${esc(t('sheet.log.note'))}" aria-label="${esc(t('sheet.log.note'))}" autocomplete="off"></div></div>
 <button class="btn ex-wide" type="submit">${esc(t('sheet.log.submit'))}</button>`;
@@ -298,6 +299,22 @@ export function mountExpenses(el, ctx) {
       pick = def ? def.id : null;
     }
     $('#logChips').innerHTML = cats.map((c) => `<button type="button" data-c="${esc(c.id)}" class="${c.id === pick ? 'on' : ''}" aria-pressed="${c.id === pick}">${esc(catLabel(c, t))}</button>`).join('');
+    renderFull();
+  }
+
+  // What is left of the picked category's budget in the month of the chosen date.
+  function fullLeft() {
+    const d = $('#logDate').value;
+    const m = /^\d{4}-\d{2}-\d{2}$/.test(d) ? monthOf(d) : cur;
+    const row = projectedSummary(state, m).rows.find((r) => r.catId === pick);
+    return row ? row.left : 0;
+  }
+
+  function renderFull() {
+    const b = $('#logFull');
+    const left = fullLeft();
+    b.hidden = !(left > 0);
+    if (left > 0) b.textContent = t('sheet.log.full', { amount: money(left) });
   }
 
   function render({ keepBud = false } = {}) {
@@ -471,6 +488,12 @@ export function mountExpenses(el, ctx) {
       pick = b.dataset.c;
       renderChips();
     });
+    logSheet.addEventListener('click', (e) => {
+      if (!e.target.closest('#logFull')) return;
+      const left = fullLeft();
+      if (left > 0) { $('#logAmt').value = formatAmount(left, 'en'); $('#logAmt').focus(); }
+    });
+    logSheet.addEventListener('change', (e) => { if (e.target.id === 'logDate') renderFull(); });
     logSheet.addEventListener('submit', async (e) => {
       e.preventDefault();
       // Validate everything before touching the month, so a rejected entry leaves no month record.

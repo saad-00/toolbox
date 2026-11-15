@@ -75,6 +75,32 @@ test.describe('Arabic', () => {
     await expect(page.locator('.mscroll button.on')).toHaveAttribute('data-m', '2026-11');
   });
 
+  test('full-amount button fills the remaining budget of the picked category', async ({ page }) => {
+    await seed(page);
+    await page.locator('#fab').click();
+    const sheet = page.locator('#logSheet');
+    const full = page.locator('#logFull');
+    // «قرض»: budget 200, nothing spent in Nov → full amount 200
+    await sheet.locator('.chips button', { hasText: /^قرض$/ }).click();
+    await expect(full).toBeVisible();
+    await expect(full).toContainText('200');
+    await full.click();
+    await expect(page.locator('#logAmt')).toHaveValue('200');
+    // «نت الجوال»: budget 171.75, already spent 171.75 → nothing left, button hidden
+    await sheet.locator('.chips button', { hasText: /^نت الجوال$/ }).click();
+    await expect(full).toBeHidden();
+    // partially spent: log 50 of «قرض», reopen → remaining 150
+    await sheet.locator('.chips button', { hasText: /^قرض$/ }).click();
+    await page.locator('#logAmt').fill('50');
+    await sheet.locator('button[type=submit]').click();
+    await expect(sheet).not.toHaveClass(/\bon\b/);
+    await page.locator('#fab').click();
+    await sheet.locator('.chips button', { hasText: /^قرض$/ }).click();
+    await expect(full).toContainText('150');
+    await full.click();
+    await expect(page.locator('#logAmt')).toHaveValue('150');
+  });
+
   test('month strip and swipe', async ({ page }) => {
     await seed(page);
     const on = page.locator('.mscroll button.on');
