@@ -1,6 +1,6 @@
 // Toolbox service worker: precache the shell, serve same-origin GETs cache-first.
 // Bump VERSION whenever shell files change so clients pick up the new files.
-const VERSION = 'toolbox-v5';
+const VERSION = 'toolbox-v6';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'tools.json',
   'icons/icon-192.png', 'icons/icon-512.png',
@@ -17,7 +17,10 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' bypasses the browser HTTP cache, so an update never mixes old and new files.
+  e.waitUntil(caches.open(VERSION)
+    .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
