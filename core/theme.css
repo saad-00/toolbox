@@ -166,6 +166,7 @@ details .btn{margin-top:12px}
 .cpanel label{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .cpanel input[type=color]{width:46px;height:36px;border:1px solid var(--edge);border-radius:10px;background:none;padding:2px;flex:none}
 .sstatus span{display:block}.sstatus .serr{color:var(--bad);margin-top:4px}
+#sSettingsErr{padding:14px 18px;margin:0 0 16px;font-size:14px;color:var(--bad)}
 .banner{margin-bottom:16px;border-radius:24px}.banner p{margin:0 0 12px}
 .banner .btn{text-decoration:none;display:inline-flex;align-items:center}
 @media(max-width:820px){

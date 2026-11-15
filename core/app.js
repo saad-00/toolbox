@@ -38,6 +38,8 @@ let settingsOk = true;
 let bannerDismissed = false;
 let syncInfo = { running: false, error: null };
 let installEvt = null;
+// Credentials typed in Settings for «مزامنة الآن»: used for that one run and saved only if it succeeds.
+let pendingCreds = null;
 
 // Captured early so the welcome install step can offer a real «install» button.
 addEventListener('beforeinstallprompt', (e) => {
@@ -56,20 +58,25 @@ async function persistSettings() {
 }
 
 const syncReady = () => !loadFailed && !!state && settings.mode === 'sync' && !!settings.token && !!settings.passphrase;
+const credsFor = () => pendingCreds || (syncReady() ? { token: settings.token, passphrase: settings.passphrase } : null);
 const emitSync = () => dispatchEvent(new CustomEvent('toolbox:sync', { detail: { ...syncInfo } }));
 
 // One sync: push a snapshot, then fold the result back into the live state (merging again so
 // edits made while the request was in flight survive; the debounced follow-up uploads them).
 async function runSync() {
-  if (!syncReady()) return null;
+  const creds = credsFor();
+  if (!creds || loadFailed || !state) return null;
+  const trial = creds === pendingCreds;
   syncInfo = { running: true, error: null };
   emitSync();
   try {
     const res = await syncNow({
-      state: structuredClone(state), token: settings.token, passphrase: settings.passphrase,
+      state: structuredClone(state), token: creds.token, passphrase: creds.passphrase,
       deviceId: settings.deviceId,
     });
     if (loadFailed || !state) return null;
+    // New credentials become the device's settings only now that a sync has succeeded.
+    if (trial) Object.assign(settings, { token: creds.token, passphrase: creds.passphrase, mode: 'sync' });
     await replaceState(mergeStates(state, res.state), { fromSync: true });
     settings.lastSyncAt = Date.now();
     await persistSettings();
@@ -232,8 +239,8 @@ export function applyLanguage(lang) {
   renderHome();
   renderPlaceholders();
   if (expenses) expenses.update({ t, lang: l });
-  if (prefs) prefs.update({ t });
   else if (loadFailed && document.getElementById('exLoadErr')) renderLoadError();
+  if (prefs) prefs.update({ t });
   updateHomeSub();
   if (booted) show(current);
 }
@@ -273,9 +280,14 @@ function ensurePrefs() {
     getState: () => (loadFailed ? null : state),
     replaceState: (next) => replaceState(next),
     onBackedUp: renderBanner,
-    sync: () => scheduler.runNow(),
+    // creds: { token, passphrase } typed in Settings; saved only if this sync succeeds.
+    async sync(creds) {
+      pendingCreds = creds || null;
+      try { return await scheduler.runNow(); } finally { pendingCreds = null; }
+    },
+    settingsOk: () => settingsOk,
     syncInfo: () => syncInfo,
-    stopSync() { scheduler.cancel(); syncInfo = { running: false, error: null }; emitSync(); renderBanner(); },
+    stopSync() { scheduler.cancel(); pendingCreds = null; syncInfo = { running: false, error: null }; emitSync(); renderBanner(); },
   });
   return prefs;
 }
@@ -290,9 +302,9 @@ function runWelcome() {
       state = s;
       freshStart = false;
       requestPersist();
-      const { lang, mode, token, passphrase, lastSyncAt } = choices || {};
+      const { lang, mode, token, passphrase } = choices || {};
       Object.assign(settings, { onboarded: true, onboardedAt: Date.now(), lang: lang || getLang(), mode: mode === 'sync' ? 'sync' : 'local' });
-      if (settings.mode === 'sync') Object.assign(settings, { token, passphrase, lastSyncAt });
+      if (settings.mode === 'sync') Object.assign(settings, { token, passphrase });
       await persistSettings();
       el.hidden = true;
       el.innerHTML = '';

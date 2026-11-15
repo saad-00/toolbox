@@ -187,5 +187,6 @@
   "err.bad-backup": "This file isn’t a valid Toolbox backup",
   "home.backup": "It’s been over 30 days without a backup. Take one now so your data stays safe.",
   "home.backupGo": "Back up",
-  "home.dismiss": "Dismiss"
+  "home.dismiss": "Dismiss",
+  "set.cantSave": "Settings can’t be saved on this device right now because they couldn’t be read. Your changes last until you close the app."
 }

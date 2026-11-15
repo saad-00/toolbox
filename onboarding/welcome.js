@@ -5,11 +5,14 @@ import { detectLang, setLang, getLang, t, dir } from '../core/i18n.js';
 import { createState, DEFAULT_CAT_KEYS } from '../core/model.js';
 import { parseAmount } from '../core/money.js';
 import { setIncome, monthOf, todayLocal } from '../core/months.js';
-import { syncNow } from '../core/sync.js';
+import { pullRemote } from '../core/sync.js';
 import { toast } from '../core/ui.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TOTAL = 4;
+// A remote worth adopting: any live category or transaction, or any month record.
+const hasContent = (s) => !!s && ((s.cats || []).some((c) => !c.deleted) || (s.tx || []).some((x) => !x.deleted)
+  || Object.keys(s.months || {}).length > 0 || (s.plans || []).some((p) => !p.deleted));
 const syncErr = (e) => {
   const k = `sync.err.${e && e.message}`;
   const s = t(k);
@@ -24,7 +27,7 @@ export function mountWelcome(el, done, opts = {}) {
     mode: 'local',
     token: '',
     passphrase: '',
-    connected: null, // { state, status, token, passphrase, at } after a successful connection test
+    connected: null, // { remote: State|null, token, passphrase } after a successful (read-only) connection test
     testMsg: '',
   };
   let step = 1;
@@ -103,12 +106,11 @@ ${opts.install && opts.install.available() ? `<button class="btn sec winstall" t
     el.querySelector('#wTest').disabled = true;
     out.textContent = t('sync.running');
     try {
-      // An empty state: the merge result is exactly the remote data, so no starter categories
-      // are pushed into an existing synced account.
-      const r = await syncNow({ state: createState([]), token, passphrase, deviceId: opts.deviceId });
-      data.connected = { ...r, token, passphrase, at: Date.now() };
+      // Read-only: GET + decrypt, never PUT. The first auto-sync after Finish uploads.
+      const remote = await pullRemote({ token, passphrase });
+      data.connected = { remote: hasContent(remote) ? remote : null, token, passphrase };
       data.mode = 'sync';
-      data.testMsg = t(r.status === 'pushed' ? 'wel.connectedData' : 'wel.connected');
+      data.testMsg = t(data.connected.remote ? 'wel.connectedData' : 'wel.connected');
     } catch (e) {
       data.connected = null;
       data.testMsg = syncErr(e);
@@ -124,8 +126,10 @@ ${opts.install && opts.install.available() ? `<button class="btn sec winstall" t
     if (data.mode === 'sync') {
       const c = data.connected;
       if (!c || c.token !== data.token.trim() || c.passphrase !== data.passphrase) { toast(t('wel.needTest')); return; }
-      choices = { ...choices, mode: 'sync', token: c.token, passphrase: c.passphrase, lastSyncAt: c.at };
-      if (c.status === 'pushed') state = c.state;
+      choices = { ...choices, mode: 'sync', token: c.token, passphrase: c.passphrase };
+      // An existing synced account is adopted as is; an empty or missing remote gets the
+      // starter categories and salary below, exactly like local mode.
+      if (c.remote) state = c.remote;
     }
     if (!state) {
       state = createState(DEFAULT_CAT_KEYS.filter((k) => data.checked.has(k)));

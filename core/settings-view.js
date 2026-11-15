@@ -1,7 +1,7 @@
 // Settings screen (#prefs): language, palette, backup, sync. Everything here is device-local
 // (IndexedDB 'settings'), never synced. The app owns state and sync; ctx exposes them:
 // ctx = { t, getLang, settings, persist(), setLanguage(l), applyPalette(p), getState(),
-//         replaceState(next), onBackedUp(), sync(), syncInfo(), stopSync() }
+//         replaceState(next), onBackedUp(), sync(creds), syncInfo(), stopSync(), settingsOk() }
 import { PALETTES } from './theme.js';
 import { exportBackup, importBackup } from './backup.js';
 import { toast } from './ui.js';
@@ -32,7 +32,9 @@ export function mountSettings(el, ctx) {
 
   function skeleton() {
     const c = custom();
-    el.innerHTML = `<h1>${esc(t('nav.settings'))}</h1><p class="lead">${esc(t('set.lead'))}</p>
+    const noSave = ctx.settingsOk && !ctx.settingsOk()
+      ? `<p class="card serr" id="sSettingsErr" role="alert">${esc(t('set.cantSave'))}</p>` : '';
+    el.innerHTML = `<h1>${esc(t('nav.settings'))}</h1><p class="lead">${esc(t('set.lead'))}</p>${noSave}
 <div class="grid2 prefs">
  <div class="card">
   <h2>${esc(t('set.lang'))}</h2>
@@ -87,7 +89,7 @@ export function mountSettings(el, ctx) {
     if (!syncOn()) main = t('sync.off');
     else if (info.running) main = t('sync.running');
     else main = settings.lastSyncAt ? t('sync.last', { time: when(settings.lastSyncAt) }) : t('sync.never');
-    const err = syncOn() && !info.running && info.error ? errText(info.error) : '';
+    const err = !info.running && info.error ? errText(info.error) : '';
     out.innerHTML = `<span>${esc(main)}</span>${err ? `<span class="serr" role="alert">${esc(err)}</span>` : ''}`;
     $('#sStop').hidden = !syncOn() && !settings.token && !settings.passphrase;
     $('#sSyncNow').disabled = !!info.running;
@@ -158,10 +160,9 @@ export function mountSettings(el, ctx) {
     const token = $('#sToken').value.trim();
     const passphrase = $('#sPass').value;
     if (!token || !passphrase) { toast(t('sync.needBoth')); return; }
-    Object.assign(settings, { token, passphrase, mode: 'sync' });
-    await ctx.persist();
+    // Nothing is saved until this sync succeeds (the app then stores token, passphrase, mode).
     renderStatus();
-    try { await ctx.sync(); toast(t('toast.synced')); } catch { /* the status line shows the error */ }
+    try { await ctx.sync({ token, passphrase }); toast(t('toast.synced')); } catch { /* the status line shows the error */ }
     renderStatus();
   }
 

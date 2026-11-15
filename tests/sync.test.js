@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createState, addCategory, addTx, setClock } from '../core/model.js';
 import { encryptJSON, decryptJSON } from '../core/crypto.js';
-import { syncNow } from '../core/sync.js';
+import { syncNow, pullRemote } from '../core/sync.js';
 
 const URL_ = 'https://api.github.com/repos/saad-00/toolbox-data/contents/toolbox.enc.json';
 const PASS = 'mine';
@@ -239,4 +239,35 @@ test('uploaded body never contains plaintext; >1 MB payload round-trips', async 
   const back = await uploaded(f.puts[0]);
   assert.equal(back.tx[0].note, s.tx[0].note);
   assert.equal(back.cats[0].name, 'Groceries-شاورما');
+});
+
+// pullRemote: read-only (used by the welcome connection test). Never PUTs.
+test('pullRemote returns null when the file does not exist, with no PUT', async () => {
+  const gh = fakeGitHub(null);
+  assert.equal(await pullRemote({ token: 't', passphrase: PASS, fetch: gh.fetch }), null);
+  assert.equal(gh.gets.length, 1);
+  assert.equal(gh.puts.length, 0);
+});
+
+test('pullRemote decrypts the remote state, with no PUT (base64 and raw paths)', async () => {
+  const { s } = mkState('remote cat', 500);
+  for (const large of [false, true]) {
+    const gh = fakeGitHub(await encryptJSON(s, PASS), { large });
+    const got = await pullRemote({ token: 't', passphrase: PASS, fetch: gh.fetch });
+    assert.deepEqual(got, s);
+    assert.equal(gh.puts.length, 0);
+    assert.equal(gh.gets[0].url, URL_);
+    assert.equal(gh.gets[0].headers.Authorization, 'Bearer t');
+  }
+});
+
+test('pullRemote maps errors like syncNow and never PUTs', async () => {
+  const { s } = mkState('x', 1);
+  const gh = fakeGitHub(await encryptJSON(s, 'other'));
+  await assert.rejects(pullRemote({ token: 't', passphrase: PASS, fetch: gh.fetch }), /wrong-passphrase/);
+  const bad = fakeGitHub(null, { getQueue: [401] });
+  await assert.rejects(pullRemote({ token: 't', passphrase: PASS, fetch: bad.fetch }), /bad-token/);
+  const off = { fetch: async () => { throw new TypeError('net'); } };
+  await assert.rejects(pullRemote({ token: 't', passphrase: PASS, fetch: off.fetch }), /offline/);
+  assert.equal(gh.puts.length + bad.puts.length, 0);
 });

@@ -80,17 +80,30 @@ async function pull(fetchFn, url, headers, passphrase) {
   return { sha: meta.sha, remote };
 }
 
-export async function syncNow({
-  state, token, passphrase,
-  owner = 'saad-00', repo = 'toolbox-data', path = 'toolbox.enc.json',
-  deviceId = 'device', fetch: fetchFn = globalThis.fetch,
-}) {
+function target({ token, owner = 'saad-00', repo = 'toolbox-data', path = 'toolbox.enc.json' }) {
   const url = `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
   const headers = {
     Authorization: `Bearer ${token}`,
     Accept: ACCEPT,
     'X-GitHub-Api-Version': '2022-11-28',
   };
+  return { url, headers };
+}
+
+// Read-only: GET + decrypt the remote state (null when the file does not exist). Never PUTs.
+// Same error mapping as syncNow ('wrong-passphrase', 'bad-envelope', 'bad-token', 'offline', 'sync-failed').
+export async function pullRemote({ token, passphrase, owner, repo, path, fetch: fetchFn = globalThis.fetch }) {
+  const { url, headers } = target({ token, owner, repo, path });
+  const got = await pull(fetchFn, url, headers, passphrase);
+  return got ? got.remote : null;
+}
+
+export async function syncNow({
+  state, token, passphrase,
+  owner = 'saad-00', repo = 'toolbox-data', path = 'toolbox.enc.json',
+  deviceId = 'device', fetch: fetchFn = globalThis.fetch,
+}) {
+  const { url, headers } = target({ token, owner, repo, path });
   for (let attempt = 0; attempt < 2; attempt++) {
     const got = await pull(fetchFn, url, headers, passphrase);
     const merged = got ? mergeStates(state, got.remote) : JSON.parse(JSON.stringify(state));

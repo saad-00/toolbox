@@ -171,6 +171,27 @@ test.describe('settings', () => {
     expect((await deviceSettings(page)).palette).toBe('custom');
   });
 
+  test('settings that cannot be read show a notice that they cannot be saved', async ({ page }) => {
+    await seed(page);
+    await page.addInitScript(() => {
+      const get = IDBObjectStore.prototype.get;
+      IDBObjectStore.prototype.get = function (k) {
+        if (k === 'settings') throw new DOMException('read failed', 'UnknownError');
+        return get.call(this, k);
+      };
+    });
+    await page.goto('./#prefs');
+    await page.reload();
+    await expect(page.locator('#sSettingsErr')).toBeVisible();
+    await expect(page.locator('#sSettingsErr')).toContainText('لا يمكن حفظ الإعدادات');
+  });
+
+  test('settings that were read normally show no notice', async ({ page }) => {
+    await seed(page, { hash: '#prefs' });
+    await expect(page.locator('#view-prefs h1')).toBeVisible();
+    await expect(page.locator('#sSettingsErr')).toHaveCount(0);
+  });
+
   test('backup reminder shows after 30 days', async ({ page }) => {
     await seed(page, { settings: { mode: 'local', lastBackupAt: Date.now() - 31 * DAY } });
     const banner = page.locator('#backupBanner');
@@ -288,7 +309,7 @@ test.describe('sync settings', () => {
       addTx(s, { catId: s.cats[0].id, amount: 777, date: todayLocal(), note: 'from-remote' });
       return encryptJSON(s, 'shared pass');
     });
-    await mockGitHub(page, remote);
+    const calls = await mockGitHub(page, remote);
     for (let i = 0; i < 3; i++) await w.locator('#wNext').click();
     await w.locator('#wAdv summary').click();
     await w.locator('input[name=mode][value=sync]').check();
@@ -299,6 +320,8 @@ test.describe('sync settings', () => {
     await w.locator('#wPass').fill('shared pass');
     await w.locator('#wTest').click();
     await expect(w.locator('#wTestOut')).toContainText('وُجدت بياناتك', { timeout: 20000 });
+    expect(calls.GET).toBe(1);
+    expect(calls.PUT).toBe(0); // the connection test is read-only
     await w.locator('#wFinish').click();
     await expect(page.locator('#app')).toBeVisible();
     const s = await stored(page);
@@ -306,7 +329,35 @@ test.describe('sync settings', () => {
     expect(s.tx.map((x) => x.note)).toContain('from-remote');
     const set = await deviceSettings(page);
     expect(set).toEqual(expect.objectContaining({ onboarded: true, mode: 'sync', token: 'github_pat_test', passphrase: 'shared pass' }));
-    expect(set.lastSyncAt).toBeGreaterThan(0);
+  });
+
+  test('welcome sync mode with no remote file keeps the chosen categories and salary; pressing test twice uploads nothing', async ({ page }) => {
+    await page.goto('./');
+    const w = page.locator('#welcome');
+    await expect(w).toBeVisible();
+    const calls = await mockGitHub(page, null);
+    await w.locator('#wNext').click();
+    await w.locator('label', { hasText: 'البنزين والمواصلات' }).click();
+    await w.locator('#wSalary').fill('1000');
+    await w.locator('#wNext').click();
+    await w.locator('#wNext').click();
+    await w.locator('#wAdv summary').click();
+    await w.locator('#wToken').fill('github_pat_test');
+    await w.locator('#wPass').fill('shared pass');
+    for (let i = 0; i < 2; i++) {
+      await w.locator('#wTest').click();
+      await expect(w.locator('#wTestOut')).toHaveText('تم الاتصال. سيُزامَن هذا الجهاز.', { timeout: 20000 });
+    }
+    expect(calls.GET).toBe(2);
+    expect(calls.PUT).toBe(0);
+    await w.locator('#wFinish').click();
+    await expect(page.locator('#app')).toBeVisible();
+    const s = await stored(page);
+    expect(s.cats.filter((c) => !c.deleted)).toHaveLength(8);
+    expect(Object.values(s.months).map((m) => m.income)).toEqual([100000]);
+    expect((await deviceSettings(page)).mode).toBe('sync');
+    // the first auto-sync after boot uploads the new state
+    await expect.poll(() => calls.PUT, { timeout: 20000 }).toBe(1);
   });
 
   test('«إيقاف المزامنة» clears token and passphrase', async ({ page }) => {
@@ -343,10 +394,14 @@ test.describe('sync settings', () => {
     await expect(v.locator('#sStatus')).toContainText('لم يُرفع شيء');
     expect(calls.GET).toBeGreaterThan(0);
     expect(calls.PUT).toBe(0);
+    // a failed first sync saves nothing: previous settings are kept
     const set = await deviceSettings(page);
-    expect(set.token).toBe('github_pat_test');
-    expect(set.passphrase).toBe('my passphrase');
+    expect(set.token).toBeFalsy();
+    expect(set.passphrase).toBeFalsy();
+    expect(set.mode).not.toBe('sync');
     expect(set.lastSyncAt).toBeFalsy();
+    await page.reload();
+    await expect(v.locator('#sStatus')).toContainText('المزامنة متوقفة');
   });
 
   test('sync now merges the remote state and records the time; auto-sync after a save', async ({ page }) => {
