@@ -71,3 +71,30 @@ test('amounts must be non-negative safe integers; zero allowed', () => {
   setIncome(s, '2026-11', 0); setBudget(s, '2026-11', c, 0);
   assert.equal(s.months['2026-11'].budget[c], 0);
 });
+test('auto-copied month has updatedAt 0; only real edits stamp the clock', () => {
+  const s = createState([]);
+  try {
+    setClock(() => 1000); setIncome(s, '2026-11', 500);
+    setClock(() => 2000);
+    const m = ensureMonth(s, '2026-12');
+    assert.equal(m.updatedAt, 0);
+    setIncome(s, '2026-12', 700);
+    assert.equal(m.updatedAt, 2000);
+  } finally { setClock(); }
+});
+test('an auto-copy on one device never overwrites a real edit from another', async () => {
+  const { mergeStates } = await import('../core/merge.js');
+  const { addTx } = await import('../core/model.js');
+  const laptop = createState(['cat.food']);
+  try {
+    setClock(() => 1000); setIncome(laptop, '2026-11', 500000);
+    const phone = JSON.parse(JSON.stringify(laptop));
+    setClock(() => 2000); setIncome(laptop, '2026-12', 900000); // laptop: real December income
+    setClock(() => 3000); ensureMonth(phone, '2026-12'); // phone: auto-copy, then spends
+    addTx(phone, { catId: 'cat.food', amount: 1500, date: '2026-12-02', note: '' });
+    for (const m of [mergeStates(laptop, phone), mergeStates(phone, laptop)]) {
+      assert.equal(m.months['2026-12'].income, 900000);
+      assert.equal(m.tx.length, 1);
+    }
+  } finally { setClock(); }
+});

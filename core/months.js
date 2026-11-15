@@ -23,6 +23,8 @@ export function todayLocal(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+// The automatic copy is stamped updatedAt 0: it is derived data, so any real edit of that month
+// on another device (setIncome/setBudget, which stamp now()) wins when states are merged.
 export function ensureMonth(state, month) {
   check(month);
   const existing = state.months[month];
@@ -35,7 +37,7 @@ export function ensureMonth(state, month) {
   const rec = {
     income: from ? from.income : 0,
     budget: from ? { ...from.budget } : {},
-    updatedAt: now(),
+    updatedAt: 0,
   };
   state.months[month] = rec;
   return rec;
