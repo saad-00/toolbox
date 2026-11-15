@@ -5,14 +5,14 @@ import { test, expect } from '@playwright/test';
 async function seed(page, { lang = 'ar', fixture = true } = {}) {
   await page.clock.setFixedTime(new Date('2026-11-15T10:00:00'));
   await page.goto('./');
-  await expect(page.locator('#app')).toBeVisible();
+  await expect(page.locator('#welcome')).toBeVisible(); // fresh device: first-run welcome
   await page.evaluate(async ({ lang, fixture }) => {
     const store = await import('./core/store.js');
     if (fixture) {
       const f = await import('./tests/fixtures/excel-nov-2026.js');
       await store.saveState(f.fixture());
     }
-    await store.saveSettings({ lang });
+    await store.saveSettings({ lang, onboarded: true });
     location.hash = '#expenses';
   }, { lang, fixture });
   await page.reload();
@@ -374,7 +374,7 @@ test.describe('English', () => {
     await expect(page.locator('#exDues .due').first()).toContainText('Tamara');
   });
 
-  test('first run without state uses the nine default categories', async ({ page }) => {
+  test('onboarded device without saved state falls back to the nine default categories', async ({ page }) => {
     await seed(page, { lang: 'en', fixture: false });
     await page.locator('.tabs button[data-tab=bud]').click();
     await expect(page.locator('#exBuds .brow')).toHaveCount(9);

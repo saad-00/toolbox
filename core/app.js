@@ -1,13 +1,19 @@
-// Shell boot: settings → language → palette → service worker → hub → routing.
+// Shell boot: settings → language → palette → service worker → welcome (first run) → hub → routing → sync.
 import { detectLang, setLang, getLang, t, dir, loadLocales } from './i18n.js';
-import { loadSettings, loadState, saveState } from './store.js';
-import { createState } from './model.js';
+import { loadSettings, saveSettings, loadState, saveState, requestPersist } from './store.js';
+import { createState, uid, DEFAULT_CAT_KEYS } from './model.js';
 import { monthOf, todayLocal } from './months.js';
 import { formatAmount } from './money.js';
 import { mountExpenses, projectedSummary } from '../tools/expenses/view.js';
 import { applyPalette } from './theme.js';
 import { onRoute } from './router.js';
 import { toast } from './ui.js';
+import { needsBackupReminder } from './backup.js';
+import { syncNow } from './sync.js';
+import { mergeStates } from './merge.js';
+import { createSyncScheduler } from './autosync.js';
+import { mountSettings } from './settings-view.js';
+import { mountWelcome } from '../onboarding/welcome.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -19,19 +25,88 @@ let current = 'home';
 let booted = false;
 let state = null;
 let expenses = null;
+let prefs = null;
 // True when the saved state could not be read: nothing may be written until a retry succeeds,
 // otherwise the first save would replace the user's real data with an empty state.
 let loadFailed = false;
+// True when readState found nothing saved (first run, or data cleared).
+let freshStart = false;
+// Device settings (IndexedDB 'settings', never synced). settingsOk=false when the read failed:
+// then settings are used in memory only and never written (a write would wipe the stored token).
+let settings = {};
+let settingsOk = true;
+let bannerDismissed = false;
+let syncInfo = { running: false, error: null };
+let installEvt = null;
 
-const DEFAULT_CATS = ['cat.housing', 'cat.bills', 'cat.mobileNet', 'cat.food', 'cat.transport',
-  'cat.subscriptions', 'cat.emergency', 'cat.savings', 'cat.allowance'];
+// Captured early so the welcome install step can offer a real «install» button.
+addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installEvt = e;
+  dispatchEvent(new CustomEvent('toolbox:installable'));
+});
 
-// First-run state (in memory only; written on the first change). Task 13's welcome screen replaces this.
-export function initialState() { return createState(DEFAULT_CATS); }
+// Fallback for a device that finished the welcome but has no saved state (in memory only;
+// written on the first change).
+export function initialState() { return createState(DEFAULT_CAT_KEYS); }
+
+async function persistSettings() {
+  if (!settingsOk) return;
+  try { await saveSettings(settings); } catch { /* device settings are best effort */ }
+}
+
+const syncReady = () => !loadFailed && !!state && settings.mode === 'sync' && !!settings.token && !!settings.passphrase;
+const emitSync = () => dispatchEvent(new CustomEvent('toolbox:sync', { detail: { ...syncInfo } }));
+
+// One sync: push a snapshot, then fold the result back into the live state (merging again so
+// edits made while the request was in flight survive; the debounced follow-up uploads them).
+async function runSync() {
+  if (!syncReady()) return null;
+  syncInfo = { running: true, error: null };
+  emitSync();
+  try {
+    const res = await syncNow({
+      state: structuredClone(state), token: settings.token, passphrase: settings.passphrase,
+      deviceId: settings.deviceId,
+    });
+    if (loadFailed || !state) return null;
+    await replaceState(mergeStates(state, res.state), { fromSync: true });
+    settings.lastSyncAt = Date.now();
+    await persistSettings();
+    syncInfo = { running: false, error: null };
+    return res;
+  } catch (e) {
+    syncInfo = { running: false, error: (e && e.message) || 'sync-failed' };
+    throw e;
+  } finally {
+    if (syncInfo.running) syncInfo = { running: false, error: null };
+    emitSync();
+  }
+}
+
+const scheduler = createSyncScheduler({ run: runSync, delay: 5000 });
+
+function autoSyncSoon() {
+  if (syncReady() && navigator.onLine !== false) scheduler.schedule();
+}
 
 async function save(s) {
   if (loadFailed) return;
   await saveState(s);
+  autoSyncSoon();
+}
+
+// Replace the live state's contents in place (the expenses view holds the same object), save,
+// and re-render. Rolls back if the save fails. Never runs after a failed read.
+async function replaceState(next, { fromSync = false } = {}) {
+  if (loadFailed || !state) throw new Error('load-failed');
+  const snap = structuredClone(state);
+  const put = (src) => { for (const k of Object.keys(state)) delete state[k]; Object.assign(state, src); };
+  put(next);
+  try { await saveState(state); } catch (e) { put(snap); throw e; }
+  if (!fromSync) autoSyncSoon();
+  if (expenses) expenses.render({ keepBud: !!document.activeElement?.closest?.('#view-expenses input') });
+  updateHomeSub();
 }
 
 // Hub card line: what is left this month.
@@ -53,7 +128,8 @@ function renderLoadError() {
 async function readState() {
   try {
     const saved = await loadState();
-    state = saved || initialState();
+    freshStart = saved == null;
+    state = saved || null;
     loadFailed = false;
   } catch {
     state = null;
@@ -64,6 +140,7 @@ async function readState() {
 async function retryLoad() {
   await readState();
   if (loadFailed) { toast(t('err.load')); return; }
+  if (!state) state = initialState();
   document.getElementById('view-expenses').innerHTML = '';
   ensureExpenses();
   updateHomeSub();
@@ -104,7 +181,21 @@ function renderHome() {
     return `<div class="tool" data-tool="${esc(tool.id)}">${link}${quick}</div>`;
   }).join('');
   $('#view-home').innerHTML = `<div class="row"><h1>${esc(t('app.name'))}</h1></div>`
-    + `<p class="lead">${esc(t('home.lead'))}</p><div class="tools">${cards}</div>`;
+    + `<p class="lead">${esc(t('home.lead'))}</p><div id="homeBanner"></div><div class="tools">${cards}</div>`;
+  renderBanner();
+}
+
+// «خذ نسخة احتياطية» reminder: local mode only, 30 days after the last backup (or after onboarding).
+function renderBanner() {
+  const el = document.getElementById('homeBanner');
+  if (!el) return;
+  const since = settings.lastBackupAt ?? settings.onboardedAt ?? null;
+  const show = !bannerDismissed && !loadFailed && settings.mode !== 'sync' && needsBackupReminder(since, Date.now());
+  el.innerHTML = show
+    ? `<div class="card banner" id="backupBanner" role="status"><p>${esc(t('home.backup'))}</p>`
+      + `<div class="row"><a class="btn" href="#prefs">${esc(t('home.backupGo'))}</a>`
+      + `<button class="btn sec" type="button" id="backupDismiss">${esc(t('home.dismiss'))}</button></div></div>`
+    : '';
 }
 
 // Placeholders; Tasks 12–13 mount into #view-expenses and #view-prefs (replacing this content).
@@ -124,6 +215,7 @@ function show(view) {
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   if (view === 'expenses') ensureExpenses();
+  if (view === 'prefs') ensurePrefs();
   $('#fab').classList.toggle('on', view === 'expenses' && !loadFailed);
   scrollTo(0, 0);
   dispatchEvent(new CustomEvent('toolbox:route', { detail: { view } }));
@@ -140,6 +232,7 @@ export function applyLanguage(lang) {
   renderHome();
   renderPlaceholders();
   if (expenses) expenses.update({ t, lang: l });
+  if (prefs) prefs.update({ t });
   else if (loadFailed && document.getElementById('exLoadErr')) renderLoadError();
   updateHomeSub();
   if (booted) show(current);
@@ -150,6 +243,9 @@ function wire() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('#exRetry')) {
       retryLoad();
+    } else if (e.target.closest('#backupDismiss')) {
+      bannerDismissed = true;
+      renderBanner();
     } else if (e.target.closest('[data-quick=log]')) {
       if (location.hash !== '#expenses') location.hash = '#expenses';
       dispatchEvent(new CustomEvent('toolbox:log'));
@@ -164,11 +260,57 @@ function wire() {
     if (e.detail && e.detail.source === 'fab') x.fab(); else x.openLog();
   });
   addEventListener('toolbox:expenses-changed', updateHomeSub);
+  addEventListener('online', autoSyncSoon);
+}
+
+function ensurePrefs() {
+  if (prefs) return prefs;
+  prefs = mountSettings(document.getElementById('view-prefs'), {
+    t, getLang, settings,
+    persist: persistSettings,
+    setLanguage(l) { settings.lang = l; persistSettings(); applyLanguage(l); },
+    applyPalette: (p) => applyPalette(document.documentElement, p),
+    getState: () => (loadFailed ? null : state),
+    replaceState: (next) => replaceState(next),
+    onBackedUp: renderBanner,
+    sync: () => scheduler.runNow(),
+    syncInfo: () => syncInfo,
+    stopSync() { scheduler.cancel(); syncInfo = { running: false, error: null }; emitSync(); renderBanner(); },
+  });
+  return prefs;
+}
+
+// First run: show the welcome over a hidden shell; resolves once the new state is saved.
+function runWelcome() {
+  const el = document.getElementById('welcome');
+  el.hidden = false;
+  return new Promise((resolve) => {
+    mountWelcome(el, async (s, choices) => {
+      await saveState(s); // a rejection keeps the welcome open (it shows err.save)
+      state = s;
+      freshStart = false;
+      requestPersist();
+      const { lang, mode, token, passphrase, lastSyncAt } = choices || {};
+      Object.assign(settings, { onboarded: true, onboardedAt: Date.now(), lang: lang || getLang(), mode: mode === 'sync' ? 'sync' : 'local' });
+      if (settings.mode === 'sync') Object.assign(settings, { token, passphrase, lastSyncAt });
+      await persistSettings();
+      el.hidden = true;
+      el.innerHTML = '';
+      if (location.hash !== '#home') history.replaceState(null, '', '#home');
+      resolve();
+    }, {
+      lang: settings.lang,
+      deviceId: settings.deviceId,
+      install: {
+        available: () => !!installEvt,
+        async prompt() { const e = installEvt; if (!e) return; installEvt = null; await e.prompt(); try { await e.userChoice; } catch { /* dismissed */ } },
+      },
+    });
+  });
 }
 
 async function boot() {
-  let settings = {};
-  try { settings = (await loadSettings()) || {}; } catch { settings = {}; }
+  try { settings = (await loadSettings()) || {}; } catch { settings = {}; settingsOk = false; }
   const [ar, en, list] = await Promise.all([
     getJSON('./locales/ar.json'), getJSON('./locales/en.json'), getJSON('../tools.json').catch(() => []),
     readState(),
@@ -177,14 +319,20 @@ async function boot() {
   tools = Array.isArray(list) ? list : [];
   const palette = settings.palette === 'custom' && settings.customPalette ? settings.customPalette : (settings.palette || 'graphite');
   applyPalette(document.documentElement, palette);
+  if (!settings.deviceId) { settings.deviceId = uid(); persistSettings(); }
+  // Registered before the welcome so the install step can work offline-capable.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+  }
+  // Welcome only on a successful read that found nothing, on a device that never finished it.
+  if (!loadFailed && freshStart && settings.onboarded !== true) await runWelcome();
+  if (!loadFailed && !state) state = initialState();
   wire();
   applyLanguage(settings.lang ?? detectLang(navigator.languages));
   onRoute(show);
   booted = true;
   $('#app').hidden = false;
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
-  }
+  if (syncReady() && navigator.onLine !== false) scheduler.runNow().catch(() => {});
 }
 
 boot();

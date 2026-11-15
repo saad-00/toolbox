@@ -1,9 +1,19 @@
 import { test, expect } from '@playwright/test';
 
+// A fresh device opens the first-run welcome; mark it onboarded (no saved state) and reload.
+async function ready(page, url = './') {
+  await page.goto('./');
+  await expect(page.locator('#welcome')).toBeVisible();
+  await page.evaluate(async () => (await import('./core/store.js')).saveSettings({ onboarded: true }));
+  if (url !== './') await page.goto(url);
+  await page.reload();
+  await expect(page.locator('#app')).toBeVisible();
+}
+
 test.describe('Arabic device', () => {
   test.use({ locale: 'ar-SA' });
   test('rtl, Arabic title and nav', async ({ page }) => {
-    await page.goto('./');
+    await ready(page);
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ar');
     await expect(page.locator('#view-home h1')).toHaveText('أدواتي');
@@ -18,7 +28,7 @@ test.describe('Arabic device', () => {
 test.describe('English device', () => {
   test.use({ locale: 'en-US' });
   test('ltr and Toolbox', async ({ page }) => {
-    await page.goto('./');
+    await ready(page);
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('#view-home h1')).toHaveText('Toolbox');
@@ -28,7 +38,7 @@ test.describe('English device', () => {
 });
 
 test('graphite palette applied by default', async ({ page }) => {
-  await page.goto('./');
+  await ready(page);
   await expect(page.locator('#view-home')).toBeVisible();
   const bg = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
   expect(bg).toBe('#14161b');
@@ -36,13 +46,13 @@ test('graphite palette applied by default', async ({ page }) => {
 });
 
 test('unknown hash shows home', async ({ page }) => {
-  await page.goto('./#nowhere');
+  await ready(page, './#nowhere');
   await expect(page.locator('#view-home')).toBeVisible();
   await expect(page.locator('#sideNav a[data-r=home]')).toHaveClass(/\bon\b/);
 });
 
-test('routes to expenses and prefs placeholders; quick button opens expenses', async ({ page }) => {
-  await page.goto('./#prefs');
+test('routes to expenses and prefs; quick button opens expenses', async ({ page }) => {
+  await ready(page, './#prefs');
   await expect(page.locator('#view-prefs')).toBeVisible();
   await expect(page.locator('#view-home')).toBeHidden();
   await page.goto('./#home');
@@ -52,7 +62,7 @@ test('routes to expenses and prefs placeholders; quick button opens expenses', a
 });
 
 test('toast and sheet (Escape and backdrop close)', async ({ page }) => {
-  await page.goto('./');
+  await ready(page);
   await expect(page.locator('#view-home')).toBeVisible();
   await page.evaluate(async () => { const ui = await import('./core/ui.js'); ui.toast('hello'); });
   await expect(page.locator('#toast')).toHaveText('hello');
@@ -83,5 +93,5 @@ test('manifest and service worker', async ({ page, request }) => {
   const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
   expect(scope).toBe('http://127.0.0.1:4173/');
   const keys = await page.evaluate(async () => { await navigator.serviceWorker.ready; for (let i = 0; i < 50; i++) { const k = await caches.keys(); if (k.length) return k; await new Promise((r) => setTimeout(r, 100)); } return []; });
-  expect(keys).toEqual(['toolbox-v3']);
+  expect(keys).toEqual(['toolbox-v4']);
 });

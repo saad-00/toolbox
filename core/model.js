@@ -6,6 +6,10 @@ export function now() { return clock(); }
 
 export function uid() { return crypto.randomUUID(); }
 
+// The nine starter categories offered on first run (locale keys).
+export const DEFAULT_CAT_KEYS = ['cat.housing', 'cat.bills', 'cat.mobileNet', 'cat.food', 'cat.transport',
+  'cat.subscriptions', 'cat.emergency', 'cat.savings', 'cat.allowance'];
+
 export function createState(defaultCatKeys = []) {
   const t = now();
   return {
