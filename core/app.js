@@ -1,6 +1,6 @@
 // Shell boot: settings → language → palette → service worker → welcome (first run) → hub → routing → sync.
 import { detectLang, setLang, getLang, t, dir, loadLocales } from './i18n.js';
-import { loadSettings, saveSettings, loadState, saveState, requestPersist } from './store.js';
+import { loadSettings, saveSettings, loadState, saveState, requestPersist, onStateSaved } from './store.js';
 import { createState, uid, DEFAULT_CAT_KEYS } from './model.js';
 import { monthOf, todayLocal } from './months.js';
 import { formatAmount } from './money.js';
@@ -10,7 +10,7 @@ import { onRoute } from './router.js';
 import { toast } from './ui.js';
 import { needsBackupReminder } from './backup.js';
 import { syncNow } from './sync.js';
-import { mergeStates } from './merge.js';
+import { mergeStates, mergeForSave } from './merge.js';
 import { createSyncScheduler } from './autosync.js';
 import { mountSettings } from './settings-view.js';
 import { mountWelcome } from '../onboarding/welcome.js';
@@ -97,10 +97,33 @@ function autoSyncSoon() {
   if (syncReady() && navigator.onLine !== false) scheduler.schedule();
 }
 
+// Put `src`'s contents into the live state object in place (the expenses view holds it).
+function adopt(src) {
+  if (!state || !src || src === state) return;
+  for (const k of Object.keys(state)) delete state[k];
+  Object.assign(state, src);
+}
+
+function rerender() {
+  if (expenses) expenses.render({ keepBud: !!document.activeElement?.closest?.('#view-expenses input') });
+  updateHomeSub();
+}
+
 async function save(s) {
   if (loadFailed) return;
-  await saveState(s);
+  const merged = await saveState(s);
+  if (s === state) adopt(merged);
   autoSyncSoon();
+}
+
+// Another tab saved: fold the stored state into this tab's (never writes) and re-render.
+async function onOtherTabSaved() {
+  if (loadFailed || !state) return;
+  let stored;
+  try { stored = await loadState(); } catch { return; }
+  if (!stored || loadFailed || !state) return;
+  adopt(mergeForSave(stored, state));
+  rerender();
 }
 
 // Replace the live state's contents in place (the expenses view holds the same object), save,
@@ -108,12 +131,12 @@ async function save(s) {
 async function replaceState(next, { fromSync = false } = {}) {
   if (loadFailed || !state) throw new Error('load-failed');
   const snap = structuredClone(state);
-  const put = (src) => { for (const k of Object.keys(state)) delete state[k]; Object.assign(state, src); };
-  put(next);
-  try { await saveState(state); } catch (e) { put(snap); throw e; }
+  adopt(next);
+  let merged;
+  try { merged = await saveState(state); } catch (e) { adopt(snap); throw e; }
+  adopt(merged);
   if (!fromSync) autoSyncSoon();
-  if (expenses) expenses.render({ keepBud: !!document.activeElement?.closest?.('#view-expenses input') });
-  updateHomeSub();
+  rerender();
 }
 
 // Hub card line: what is left this month.
@@ -268,6 +291,7 @@ function wire() {
   });
   addEventListener('toolbox:expenses-changed', updateHomeSub);
   addEventListener('online', autoSyncSoon);
+  onStateSaved(onOtherTabSaved);
 }
 
 function ensurePrefs() {
@@ -298,8 +322,7 @@ function runWelcome() {
   el.hidden = false;
   return new Promise((resolve) => {
     mountWelcome(el, async (s, choices) => {
-      await saveState(s); // a rejection keeps the welcome open (it shows err.save)
-      state = s;
+      state = await saveState(s); // a rejection keeps the welcome open (it shows err.save)
       freshStart = false;
       requestPersist();
       const { lang, mode, token, passphrase } = choices || {};

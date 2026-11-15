@@ -3,20 +3,31 @@
 
 const copy = (x) => JSON.parse(JSON.stringify(x));
 
-function pick(x, y) {
+// x comes from side a, y from side b. tieB: on equal updatedAt side b wins (same-device saves).
+function pick(x, y, tieB = false) {
   const ux = x.updatedAt || 0, uy = y.updatedAt || 0;
   if (ux !== uy) return ux > uy ? x : y;
+  if (tieB) return y;
   return JSON.stringify(x) >= JSON.stringify(y) ? x : y;
 }
 
-function mergeList(a, b, onSame) {
+// keepOrderB: b's records in b's order, then a-only records in a's order (else sorted by id).
+function mergeList(a, b, onSame, { tieB = false, keepOrderB = false } = {}) {
   const map = new Map();
-  for (const r of [...(a || []), ...(b || [])]) {
+  for (const r of (a || [])) {
+    const prev = map.get(r.id);
+    map.set(r.id, copy(prev ? pick(prev, r) : r));
+  }
+  for (const r of (b || [])) {
     const prev = map.get(r.id);
     if (!prev) { map.set(r.id, copy(r)); continue; }
-    const win = copy(pick(prev, r));
+    const win = copy(pick(prev, r, tieB));
     if (onSame) onSame(win, prev, r);
     map.set(r.id, win);
+  }
+  if (keepOrderB) {
+    const ids = new Set((b || []).map((r) => r.id));
+    return [...(b || []).map((r) => map.get(r.id)), ...[...map.values()].filter((r) => !ids.has(r.id))];
   }
   return [...map.values()].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
 }
@@ -30,18 +41,28 @@ function orPaid(win, x, y) {
   }
 }
 
-export function mergeStates(a, b) {
+// Cross-device merge (sync, backup import): commutative, OR-merges plan `paid`.
+// opts.orPaid=false: plain newest-wins for plans.
+export function mergeStates(a, b, { orPaid: useOr = true, tieB = false, keepOrderB = false } = {}) {
   a = a || {}; b = b || {};
+  const lo = { tieB, keepOrderB };
   const months = {};
   const ma = a.months || {}, mb = b.months || {};
   for (const k of new Set([...Object.keys(ma), ...Object.keys(mb)])) {
-    months[k] = copy(ma[k] && mb[k] ? pick(ma[k], mb[k]) : (ma[k] || mb[k]));
+    months[k] = copy(ma[k] && mb[k] ? pick(ma[k], mb[k], tieB) : (ma[k] || mb[k]));
   }
   return {
     v: Math.max(a.v || 0, b.v || 0),
-    cats: mergeList(a.cats, b.cats),
+    cats: mergeList(a.cats, b.cats, null, lo),
     months,
-    tx: mergeList(a.tx, b.tx),
-    plans: mergeList(a.plans, b.plans, orPaid),
+    tx: mergeList(a.tx, b.tx, null, lo),
+    plans: mergeList(a.plans, b.plans, useOr ? orPaid : null, lo),
   };
+}
+
+// Same-device merge (two tabs, one IndexedDB): `stored` is an older or sibling version of `live`.
+// No OR on `paid` (it would undo an un-mark), ties go to the live tab, and live's record order
+// is kept so a save never reorders what the tab shows.
+export function mergeForSave(stored, live) {
+  return mergeStates(stored, live, { orPaid: false, tieB: true, keepOrderB: true });
 }

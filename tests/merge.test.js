@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createState, addCategory, addTx, deleteTx, setClock } from '../core/model.js';
 import { setBudget } from '../core/months.js';
 import { addPlan, setPaid } from '../tools/expenses/installments.js';
-import { mergeStates } from '../core/merge.js';
+import { mergeStates, mergeForSave } from '../core/merge.js';
 
 const norm = (s) => JSON.parse(JSON.stringify(s));
 function at(t, fn) {
@@ -119,4 +119,26 @@ test('missing sections are treated as empty; v is the max', () => {
   assert.deepEqual(m.months, {});
   const m2 = mergeStates({}, {});
   assert.deepEqual(m2.cats, []); assert.deepEqual(m2.tx, []);
+});
+
+test('mergeForSave (same device) keeps a newer un-mark', () => {
+  const a = base();
+  const id = at(2, () => addPlan(a, { provider: 'T', item: 'x', total: 300, n: 3, start: '2026-11-01', firstPaid: true }));
+  const stored = clone(a);
+  at(5, () => setPaid(a, id, 0, false));
+  assert.deepEqual(mergeForSave(stored, a).plans[0].paid, [false, false, false]);
+  assert.deepEqual(mergeStates(stored, a).plans[0].paid, [true, false, false]); // cross-device default
+});
+
+test('mergeForSave: live wins ties and keeps its order; stored-only records are kept', () => {
+  const live = base();
+  at(5, () => addPlan(live, { provider: 'Z', item: 'z', total: 300, n: 3, start: '2026-11-01', firstPaid: true }));
+  at(5, () => addPlan(live, { provider: 'A', item: 'a', total: 300, n: 3, start: '2026-11-01' }));
+  const stored = clone(live);
+  stored.plans[0].paid[0] = false; // same updatedAt, different content
+  stored.tx.push({ id: '0-other-tab', month: '2026-11', catId: 'c1', amount: 9, date: '2026-11-01', note: '', deleted: false, updatedAt: 6 });
+  const m = mergeForSave(stored, live);
+  assert.deepEqual(m.plans.map((p) => p.provider), ['Z', 'A']);
+  assert.equal(m.plans[0].paid[0], true);
+  assert.equal(m.tx.length, 1);
 });
