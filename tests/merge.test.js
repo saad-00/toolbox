@@ -158,3 +158,24 @@ test('a category deleted on one device is restored when the other device spent i
   const c2 = clone(b); c2.tx[0].deleted = true; c2.tx[0].updatedAt = 6;
   assert.equal(mergeStates(a, c2).cats.find((x) => x.id === 'c1').deleted, true);
 });
+
+test('unknown top-level keys are carried through (greater v wins)', () => {
+  const a = { ...base(), goals: ['a'] };
+  const b = { ...clone(base()), v: 2, goals: ['b'], extra: 1 };
+  for (const m of [mergeStates(a, b), mergeStates(b, a)]) {
+    assert.deepEqual(m.goals, ['b']);
+    assert.equal(m.extra, 1);
+    assert.equal(m.v, 2);
+  }
+  const c = { ...base(), only: { x: 1 } };
+  assert.deepEqual(mergeStates(c, base()).only, { x: 1 });
+  assert.deepEqual(mergeStates(base(), c).only, { x: 1 });
+  // same v: deterministic (commutative) across devices; the live side on a same-device save
+  const p = { ...base(), k: 'p' }; const q = { ...base(), k: 'q' };
+  assert.equal(mergeStates(p, q).k, mergeStates(q, p).k);
+  assert.equal(mergeForSave(p, q).k, 'q');
+  assert.equal(mergeForSave(q, p).k, 'p');
+  // copies, not aliases
+  const m = mergeStates(c, base()); m.only.x = 9;
+  assert.equal(c.only.x, 1);
+});

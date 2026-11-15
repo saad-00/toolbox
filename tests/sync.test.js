@@ -281,3 +281,27 @@ test('a decrypted but malformed remote is bad-envelope and never pushes', async 
   await assert.rejects(pullRemote({ token: 't', passphrase: PASS, fetch: fake.fetch }), /bad-envelope/);
   assert.equal(fake.puts.length, 0);
 });
+
+test('a remote from a newer app version is refused with update-app, never pushed', async () => {
+  const { s: local } = mkState('Food', 100);
+  const { s: remote } = mkState('Rent', 200);
+  remote.v = 2; remote.goals = [{ id: 'g' }];
+  const fake = fakeGitHub(await encryptJSON(remote, PASS));
+  await assert.rejects(syncNow({ state: local, token: 't', passphrase: PASS, fetch: fake.fetch }), /update-app/);
+  assert.equal(fake.puts.length, 0);
+});
+
+test('pullRemote (welcome) also refuses a newer-version remote', async () => {
+  const { s: remote } = mkState('Rent', 200);
+  remote.v = 2;
+  const fake = fakeGitHub(await encryptJSON(remote, PASS));
+  await assert.rejects(pullRemote({ token: 't', passphrase: PASS, fetch: fake.fetch }), /update-app/);
+});
+
+test('update-app has a message in both languages', async () => {
+  const { readFileSync } = await import('node:fs');
+  for (const l of ['ar', 'en']) {
+    const j = JSON.parse(readFileSync(new URL(`../core/locales/${l}.json`, import.meta.url), 'utf8'));
+    assert.equal(typeof j['sync.err.update-app'], 'string', l);
+  }
+});

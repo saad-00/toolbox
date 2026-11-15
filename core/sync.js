@@ -5,6 +5,7 @@
 import { encryptJSON, decryptJSON } from './crypto.js';
 import { mergeStates } from './merge.js';
 import { validState } from './validate.js';
+import { STATE_VERSION } from './model.js';
 
 const API = 'https://api.github.com';
 const ACCEPT = 'application/vnd.github+json';
@@ -78,6 +79,8 @@ async function pull(fetchFn, url, headers, passphrase) {
     try { text = b64ToUtf8(content); } catch { throw new Error('bad-envelope'); }
   }
   const remote = await decryptJSON(parseEnvelope(text), passphrase);
+  // Written by a newer app version: this one may not understand it, so never merge or upload.
+  if (remote && typeof remote === 'object' && Number(remote.v) > STATE_VERSION) throw new Error('update-app');
   if (!validState(remote)) throw new Error('bad-envelope'); // malformed records: never merged or uploaded
   return { sha: meta.sha, remote };
 }

@@ -4,6 +4,9 @@ let clock = Date.now;
 export function setClock(fn) { clock = fn || Date.now; }
 export function now() { return clock(); }
 
+// Highest state format this app version understands (state.v).
+export const STATE_VERSION = 1;
+
 export function uid() { return crypto.randomUUID(); }
 
 // The nine starter categories offered on first run (locale keys).
@@ -15,7 +18,7 @@ export const DEFAULT_CAT_KEYS = ['cat.housing', 'cat.bills', 'cat.mobileNet', 'c
 // any real rename/delete made anywhere wins over an untouched starter.
 export function createState(defaultCatKeys = []) {
   return {
-    v: 1,
+    v: STATE_VERSION,
     cats: defaultCatKeys.map((nameKey, i) => {
       const k = DEFAULT_CAT_KEYS.indexOf(nameKey);
       return { id: nameKey, name: null, nameKey, order: k >= 0 ? k + 1 : i + 1, deleted: false, updatedAt: 0 };

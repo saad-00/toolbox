@@ -404,6 +404,23 @@ test.describe('sync settings', () => {
     await expect(v.locator('#sStatus')).toContainText('المزامنة متوقفة');
   });
 
+  test('a remote from a newer app version shows the update message and nothing is uploaded', async ({ page }) => {
+    await seed(page, { hash: '#prefs' });
+    const remote = await page.evaluate(async () => {
+      const { encryptJSON } = await import('./core/crypto.js');
+      const { createState } = await import('./core/model.js');
+      return encryptJSON({ ...createState(['cat.food']), v: 2 }, 'shared pass');
+    });
+    const calls = await mockGitHub(page, remote);
+    const v = page.locator('#view-prefs');
+    await v.locator('#sAdv summary').click();
+    await v.locator('#sToken').fill('github_pat_test');
+    await v.locator('#sPass').fill('shared pass');
+    await v.locator('#sSyncNow').click();
+    await expect(v.locator('#sStatus')).toContainText('بإصدار أحدث من أدواتي', { timeout: 20000 });
+    expect(calls.PUT).toBe(0);
+  });
+
   test('sync now merges the remote state and records the time; auto-sync after a save', async ({ page }) => {
     await seed(page, { hash: '#prefs' });
     const remote = await page.evaluate(async () => {

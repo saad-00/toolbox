@@ -2,6 +2,7 @@
 // Rule: union by id; higher updatedAt wins; tie -> greater JSON.stringify (deterministic).
 
 const copy = (x) => JSON.parse(JSON.stringify(x));
+const KNOWN = new Set(['v', 'cats', 'months', 'tx', 'plans']);
 
 // x comes from side a, y from side b. tieB: on equal updatedAt side b wins (same-device saves).
 function pick(x, y, tieB = false) {
@@ -57,13 +58,28 @@ export function mergeStates(a, b, { orPaid: useOr = true, tieB = false, keepOrde
   // max) so that spending never vanishes from the summary.
   const used = new Set(tx.filter((x) => !x.deleted).map((x) => x.catId));
   for (const c of cats) if (c.deleted && used.has(c.id)) c.deleted = false;
-  return {
+  const out = {
     v: Math.max(a.v || 0, b.v || 0),
     cats,
     months,
     tx,
     plans: mergeList(a.plans, b.plans, useOr ? orPaid : null, lo),
   };
+  // Top-level keys this version does not know (added by a newer app) are carried through, not
+  // dropped: the side with the greater v wins; equal v -> b on a same-device save, else the
+  // greater JSON (commutative); a key only one side has is kept.
+  const va = a.v || 0, vb = b.v || 0;
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if (KNOWN.has(k)) continue;
+    let val;
+    if (!(k in b)) val = a[k];
+    else if (!(k in a)) val = b[k];
+    else if (va !== vb) val = va > vb ? a[k] : b[k];
+    else if (tieB) val = b[k];
+    else val = JSON.stringify(a[k]) >= JSON.stringify(b[k]) ? a[k] : b[k];
+    if (val !== undefined) out[k] = copy(val);
+  }
+  return out;
 }
 
 // Same-device merge (two tabs, one IndexedDB): `stored` is an older or sibling version of `live`.

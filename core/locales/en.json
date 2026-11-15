@@ -175,6 +175,7 @@
   "sync.needBoth": "Enter the token and the passphrase",
   "sync.err.wrong-passphrase": "The passphrase doesn’t match the uploaded data, so nothing was uploaded. Use the same passphrase as on your other devices.",
   "sync.err.bad-envelope": "The sync file on GitHub is damaged or not from Toolbox, so nothing was uploaded.",
+  "sync.err.update-app": "The synced data was saved by a newer version of Toolbox, so nothing was uploaded. Update the app (reopen it) and try again.",
   "sync.err.bad-token": "GitHub refused the token: it may have expired or lack access to the repository, or the GitHub rate limit was reached. Create a new token or try again later.",
   "sync.err.offline": "You’re offline. Your data is saved on this device and will sync later.",
   "sync.err.conflict": "The data changed on another device during sync. Please try again.",
