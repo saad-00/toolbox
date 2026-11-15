@@ -1,6 +1,6 @@
 // Shell boot: settings → language → palette → service worker → welcome (first run) → hub → routing → sync.
 import { detectLang, setLang, getLang, t, dir, loadLocales } from './i18n.js';
-import { loadSettings, saveSettings, loadState, saveState, requestPersist, onStateSaved } from './store.js';
+import { loadSettings, saveSettings, loadState, saveState, requestPersist, onStateSaved, loadOutbox } from './store.js';
 import { createState, uid, DEFAULT_CAT_KEYS } from './model.js';
 import { monthOf, todayLocal } from './months.js';
 import { formatAmount } from './money.js';
@@ -14,6 +14,7 @@ import { mergeStates, mergeForSave } from './merge.js';
 import { createSyncScheduler } from './autosync.js';
 import { mountSettings } from './settings-view.js';
 import { mountWelcome } from '../onboarding/welcome.js';
+import { createFeedback } from './feedback-view.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -26,6 +27,7 @@ let booted = false;
 let state = null;
 let expenses = null;
 let prefs = null;
+let feedback = null; // «راسلنا» sheet, created on first use
 // True when the saved state could not be read: nothing may be written until a retry succeeds,
 // otherwise the first save would replace the user's real data with an empty state.
 let loadFailed = false;
@@ -212,7 +214,10 @@ function renderHome() {
     return `<div class="tool" data-tool="${esc(tool.id)}">${link}${quick}</div>`;
   }).join('');
   $('#view-home').innerHTML = `<div class="row"><h1>${esc(t('app.name'))}</h1></div>`
-    + `<p class="lead">${esc(t('home.lead'))}</p><div id="homeBanner"></div><div class="tools">${cards}</div>`;
+    + `<p class="lead">${esc(t('home.lead'))}</p><div id="homeBanner"></div><div class="tools">${cards}</div>`
+    + `<button class="fb-entry" type="button" id="fbOpen"><span class="ic">${icon('chat')}</span>`
+    + `<span><b>${esc(t('fb.entry'))}</b><small>${esc(t('fb.entrySub'))}</small></span>`
+    + `<svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg></button>`;
   renderBanner();
 }
 
@@ -265,6 +270,7 @@ export function applyLanguage(lang) {
   if (expenses) expenses.update({ t, lang: l });
   else if (loadFailed && document.getElementById('exLoadErr')) renderLoadError();
   if (prefs) prefs.update({ t });
+  if (feedback) feedback.update({ t, getLang });
   updateHomeSub();
   if (booted) show(current);
 }
@@ -274,6 +280,8 @@ function wire() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('#exRetry')) {
       retryLoad();
+    } else if (e.target.closest('#fbOpen')) {
+      ensureFeedback().open();
     } else if (e.target.closest('#backupDismiss')) {
       bannerDismissed = true;
       renderBanner();
@@ -292,7 +300,13 @@ function wire() {
   });
   addEventListener('toolbox:expenses-changed', updateHomeSub);
   addEventListener('online', autoSyncSoon);
+  addEventListener('online', () => ensureFeedback().flush());
   onStateSaved(onOtherTabSaved);
+}
+
+function ensureFeedback() {
+  if (!feedback) feedback = createFeedback({ t, getLang });
+  return feedback;
 }
 
 function ensurePrefs() {
@@ -369,6 +383,8 @@ async function boot() {
   booted = true;
   $('#app').hidden = false;
   if (syncReady() && navigator.onLine !== false) scheduler.runNow().catch(() => {});
+  // Messages written offline earlier: send them now (only builds the sheet if any are waiting).
+  loadOutbox().then((box) => { if (box.length) ensureFeedback().flush(); }).catch(() => {});
 }
 
 boot();

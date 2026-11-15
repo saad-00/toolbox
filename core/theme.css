@@ -180,3 +180,24 @@ details .btn{margin-top:12px}
  .toast{top:60px}
 }
 @media(prefers-reduced-motion:reduce){*{transition-duration:0ms!important}body::before{animation:none}}
+
+/* «راسلنا» — home entry + sheet */
+.fb-entry{margin-top:18px;display:flex;align-items:center;gap:14px;width:100%;max-width:560px;text-align:start;border-radius:20px;padding:14px 16px;color:inherit;font:inherit;background:var(--glass);border:1px solid var(--edge);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);transition:transform 160ms cubic-bezier(.23,1,.32,1)}
+.fb-entry:active{transform:scale(.98)}
+.fb-entry .ic{width:40px;height:40px;flex:none;border-radius:13px;display:grid;place-items:center;background:var(--glass2);box-shadow:inset 0 0 0 1px var(--edge)}
+.fb-entry .ic svg{width:20px;height:20px}
+.fb-entry b{display:block;font-size:15px}.fb-entry small{display:block;color:var(--sub);font-size:12.5px;line-height:1.5}
+.fb-entry .chev{margin-inline-start:auto;opacity:.55;width:18px;height:18px;flex:none}
+[dir=rtl] .fb-entry .chev{transform:scaleX(-1)}
+.fb-types{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 16px}
+.fb-types button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 6px;border-radius:16px;border:1px solid var(--edge);background:var(--glass);color:var(--ink);font:inherit;font-size:13.5px;transition:transform 150ms ease,background-color 200ms ease}
+.fb-types button span{font-size:22px;line-height:1}
+.fb-types button:active{transform:scale(.96)}
+.fb-types button.on{background:var(--solid);color:var(--solid-ink);border-color:transparent}
+.fb textarea{width:100%;min-height:118px;resize:vertical;margin-top:4px;padding:12px 14px;border-radius:16px;border:1px solid var(--edge);background:var(--glass);color:var(--ink);font:inherit;font-size:15px;line-height:1.6;box-sizing:border-box}
+.fb .fb-opt{font-size:12px;opacity:.8}
+.fb-count{float:inline-end;font-size:12px;opacity:.7}
+.fb-meta{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--sub);background:var(--glass);border:1px dashed var(--edge);border-radius:14px;padding:9px 12px;margin:2px 0 16px}
+.fb-meta svg{width:16px;height:16px;flex:none;margin-top:2px}
+.fb .btn{width:100%}.fb .btn[disabled]{opacity:.45}
+.fb-hp{position:absolute!important;width:1px;height:1px;opacity:0;pointer-events:none;inset-inline-start:-9999px}

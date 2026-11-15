@@ -1,5 +1,5 @@
 // Device-local persistence in IndexedDB (browser only). DB 'toolbox' v1, store 'kv'.
-// Keys: 'state' (synced app state) and 'settings' (device-local, never synced).
+// Keys: 'state' (synced app state), 'settings' and 'outbox' (device-local, never synced).
 import { mergeForSave } from './merge.js';
 
 let dbPromise = null;
@@ -75,6 +75,10 @@ export async function saveState(state) {
 }
 export async function loadSettings() { return (await get('settings')) ?? {}; }
 export async function saveSettings(obj) { await put('settings', obj); }
+
+// Feedback messages waiting to be sent (device-local, never synced).
+export async function loadOutbox() { const v = await get('outbox'); return Array.isArray(v) ? v : []; }
+export async function saveOutbox(list) { await put('outbox', list); }
 
 export async function requestPersist() {
   try { return (await navigator.storage?.persist?.()) ?? false; } catch { return false; }
