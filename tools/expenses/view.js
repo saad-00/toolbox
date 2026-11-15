@@ -164,7 +164,7 @@ export function mountExpenses(el, ctx) {
 <div class="fld"><span id="provL">${esc(t('plan.provider'))}</span><div class="chips ex-provs" id="provs" role="group" aria-labelledby="provL"></div></div>
 <label class="fld" id="provOtherW" hidden>${esc(t('plan.providerName'))}<input type="text" id="provOther" placeholder="${esc(t('plan.providerHint'))}" autocomplete="off"></label>
 <label class="fld">${esc(t('plan.item'))}<input type="text" id="pItem" placeholder="${esc(t('plan.itemHint'))}" autocomplete="off"></label>
-<div class="two"><label class="fld">${esc(t('plan.total'))}<input type="text" inputmode="decimal" id="pTotal" placeholder="0" autocomplete="off"></label>
+<div class="two"><label class="fld">${esc(t('plan.monthly'))}<input type="text" inputmode="decimal" id="pMonthly" placeholder="0" autocomplete="off"></label>
 <label class="fld">${esc(t('plan.months'))}<input type="text" inputmode="numeric" id="pN" value="4" autocomplete="off"></label></div>
 <div class="chips ex-nchips" id="nChips"></div>
 <label class="fld">${esc(t('plan.start'))}<input type="date" id="pStart"></label>
@@ -457,18 +457,18 @@ export function mountExpenses(el, ctx) {
     const out = $('#pPrev');
     out.removeAttribute('data-last');
     if (!(n >= 1 && n <= 48)) { out.textContent = t('err.invalid-months'); return; }
-    let total = 0;
-    try { total = parseAmount($('#pTotal').value); } catch { total = 0; }
+    let monthly = 0;
+    try { monthly = parseAmount($('#pMonthly').value); } catch { monthly = 0; }
     const start = $('#pStart').value || `${cur}-01`;
     const last = addMonth(monthOf(start), n - 1);
     out.dataset.last = last;
-    out.textContent = total > 0
-      ? t('plan.preview', { n, amount: money(paymentAmount({ total, n }, 0)), last: monthName(last, lang) })
+    out.textContent = monthly > 0
+      ? t('plan.preview', { n, amount: money(monthly), total: money(monthly * n), last: monthName(last, lang) })
       : t('plan.previewEmpty');
   }
 
   function openPlan() {
-    for (const id of ['#pItem', '#pTotal', '#provOther']) $(id).value = '';
+    for (const id of ['#pItem', '#pMonthly', '#provOther']) $(id).value = '';
     $('#pStart').value = defDate();
     $('#pFirst').checked = true;
     $('#pN').value = '4';
@@ -515,12 +515,13 @@ export function mountExpenses(el, ctx) {
       const n = e.target.closest('[data-n]');
       if (n) { $('#pN').value = n.dataset.n; preview(); }
     });
-    planSheet.addEventListener('input', (e) => { if (['pTotal', 'pN', 'pStart'].includes(e.target.id)) preview(); });
+    planSheet.addEventListener('input', (e) => { if (['pMonthly', 'pN', 'pStart'].includes(e.target.id)) preview(); });
     planSheet.addEventListener('change', (e) => { if (e.target.id === 'pStart') preview(); });
     planSheet.addEventListener('submit', async (e) => {
       e.preventDefault();
-      let total;
-      try { total = parseAmount($('#pTotal').value); } catch (err) { toast(errMsg(err)); $('#pTotal').focus(); return; }
+      // The user enters the monthly payment; the plan stores the total (monthly × n), so every payment is equal.
+      let monthly;
+      try { monthly = parseAmount($('#pMonthly').value); } catch (err) { toast(errMsg(err)); $('#pMonthly').focus(); return; }
       const n = readN();
       // Known providers are stored as canonical ids ('tabby' / 'tamara'); a custom name stays as typed.
       const provider = prov === 'other' ? ($('#provOther').value.trim() || t('prov.other')) : prov;
@@ -528,6 +529,7 @@ export function mountExpenses(el, ctx) {
       const start = $('#pStart').value || `${cur}-01`;
       if (!(n >= 1 && n <= 48)) { toast(errMsg(new Error('invalid-months'))); $('#pN').focus(); return; }
       const firstPaid = $('#pFirst').checked;
+      const total = monthly * n;
       await mutate(() => {
         addPlan(state, { provider, item, total, n, start, firstPaid });
         return t('toast.planAdded', { provider: provLabel(provider), n, amount: money(paymentAmount({ total, n }, 0)) });

@@ -204,13 +204,14 @@ test.describe('Arabic', () => {
     await expect(sheet).toHaveClass(/\bon\b/);
     await sheet.locator('#provs button', { hasText: 'تابي' }).click();
     await page.locator('#pItem').fill('جوال');
-    await page.locator('#pTotal').fill('4800');
+    await page.locator('#pMonthly').fill('100');
     await sheet.locator('#nChips button[data-n="48"]').click();
     await expect(page.locator('#pN')).toHaveValue('48');
     await expect(page.locator('#pStart')).toHaveValue('2026-11-15');
     await expect(page.locator('#pPrev')).toHaveAttribute('data-last', '2030-10');
     await expect(page.locator('#pPrev')).toContainText('أكتوبر 2030');
     await expect(page.locator('#pPrev')).toContainText('100');
+    await expect(page.locator('#pPrev')).toContainText('4,800');
     await page.locator('#pN').fill('49');
     await expect(page.locator('#pPrev')).toContainText('48');
     await sheet.locator('#nChips button[data-n="48"]').click();
@@ -276,7 +277,7 @@ test.describe('Arabic', () => {
     await page.locator('#exNewPlan').click();
     await page.locator('#provs button[data-p=other]').click();
     await page.locator('#provOther').fill('مدفوع');
-    await page.locator('#pTotal').fill('300');
+    await page.locator('#pMonthly').fill('100');
     await page.locator('#nChips button[data-n="3"]').click();
     await page.locator('#planSheet button[type=submit]').click();
     await expect(page.locator('#planSheet')).not.toHaveClass(/\bon\b/);
