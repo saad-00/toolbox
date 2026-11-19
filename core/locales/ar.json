@@ -47,6 +47,8 @@
   "month.newEmpty": "شهر جديد بدون بيانات سابقة. عبّئ الدخل والميزانية من تبويب الميزانية.",
   "tab.list": "أقسام المصاريف",
   "sum.cats": "البنود",
+  "sum.recent": "آخر الحركات",
+  "sum.allTx": "كل الحركات",
   "sum.of": "{spent} من {budget}",
   "sum.over": "تجاوز الميزانية بـ {amount} ر.س",
   "sum.provider": "أقساط {provider}",

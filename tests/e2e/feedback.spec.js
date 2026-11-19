@@ -106,21 +106,21 @@ test('update banner: shown once to an existing user, «وش الجديد» lists
   await seed(page);
   const banner = page.locator('#updBanner .upd');
   await expect(banner).toBeVisible();
-  await expect(banner).toContainText(/تم التحديث إلى\s1\.4/);
+  await expect(banner).toContainText(/تم التحديث إلى\s1\.5/);
   await banner.locator('[data-wn]').click();
   const wn = page.locator('#wnSheet');
   await expect(wn).toHaveClass(/\bon\b/);
-  await expect(wn.locator('.wn > li')).toHaveCount(5);
+  await expect(wn.locator('.wn > li')).toHaveCount(6);
   await expect(wn.locator('.wn > li').first()).toContainText('الأحدث');
-  await expect(wn.locator('.wn > li').first()).toContainText('1.4');
+  await expect(wn.locator('.wn > li').first()).toContainText('1.5');
   await expect(banner).toHaveCount(0);
-  await expect.poll(() => page.evaluate(async () => (await (await import('./core/store.js')).loadSettings()).seenVersion)).toBe('1.4');
+  await expect.poll(() => page.evaluate(async () => (await (await import('./core/store.js')).loadSettings()).seenVersion)).toBe('1.5');
   await page.reload();
   await expect(page.locator('#fbOpen')).toBeVisible();
   await expect(page.locator('#updBanner .upd')).toHaveCount(0);
   // still reachable from Settings
   await page.goto('./#prefs');
-  await expect(page.locator('#view-prefs .ver')).toContainText('1.4');
+  await expect(page.locator('#view-prefs .ver')).toContainText('1.5');
   await page.locator('#view-prefs .ver').click();
   await expect(page.locator('#wnSheet')).toHaveClass(/\bon\b/);
 });
@@ -129,7 +129,7 @@ test('update banner ✕ hides it for good', async ({ page }) => {
   await seed(page);
   await page.locator('#updDismiss').click();
   await expect(page.locator('#updBanner .upd')).toHaveCount(0);
-  await expect.poll(() => page.evaluate(async () => (await (await import('./core/store.js')).loadSettings()).seenVersion)).toBe('1.4');
+  await expect.poll(() => page.evaluate(async () => (await (await import('./core/store.js')).loadSettings()).seenVersion)).toBe('1.5');
   await page.reload();
   await expect(page.locator('#fbOpen')).toBeVisible();
   await expect(page.locator('#updBanner .upd')).toHaveCount(0);

@@ -104,7 +104,7 @@ export function mountExpenses(el, ctx) {
   function skeleton() {
     const rtl = lang === 'ar';
     el.innerHTML = `
-<div class="row"><h1>${esc(t('nav.expenses'))}</h1><span class="sp"></span><button class="btn sec" type="button" id="mToday">${esc(t('month.current'))}</button></div>
+<div class="row"><h1>${esc(t('nav.expenses'))}</h1><span class="sp"></span><button class="btn sec" type="button" id="mToday">${esc(t('month.current'))}</button><button class="btn ex-log" type="button" id="exLog">${icon('plus')}<span>${esc(t('sheet.log.title'))}</span></button></div>
 <div class="mstrip"><button class="icon-btn" type="button" id="mPrev" aria-label="${esc(t('month.prev'))}">${rtl ? '›' : '‹'}</button><div class="mscroll" id="mscroll" role="tablist" aria-label="${esc(t('month.list'))}"></div><button class="icon-btn" type="button" id="mNext" aria-label="${esc(t('month.next'))}">${rtl ? '‹' : '›'}</button></div>
 <div class="tabs" role="tablist" aria-label="${esc(t('tab.list'))}">${TABS.map(([k, key]) => `<button type="button" role="tab" data-tab="${k}">${esc(t(key))}</button>`).join('')}</div>
 <p class="note ex-new" id="exNew" hidden></p>
@@ -120,6 +120,7 @@ export function mountExpenses(el, ctx) {
   </div>
  </div>
  <div class="card"><h2>${esc(t('sum.cats'))}</h2><div id="exCats"></div></div>
+ <div class="card ex-recent"><div class="row ex-plans-head"><h2>${esc(t('sum.recent'))}</h2><span class="sp"></span><button class="ex-all" type="button" data-tab="tx">${esc(t('sum.allTx'))}</button></div><div id="exRecent"></div></div>
 </div>
 <div id="t-tx" class="card"><h2>${esc(t('tx.title'))}</h2><div id="exTxs"></div></div>
 <div id="t-ins" class="grid2">
@@ -236,12 +237,15 @@ export function mountExpenses(el, ctx) {
   function renderTx(due) {
     const live = state.tx.filter((x) => !x.deleted && x.month === cur)
       .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
-    const txHtml = live.map((x) => {
+    const row = (x, del) => {
       const c = getCategory(state, x.catId);
       const label = c ? catLabel(c, t) : '';
       return `<div class="tx"><span class="ic">${icon('tag')}</span><div class="m">${esc(label)}<small>${esc(x.date)}${x.note ? ` · ${esc(x.note)}` : ''}</small></div>`
-        + `<span class="a">${esc(money(x.amount))}</span><button type="button" class="icon-btn" data-del="${esc(x.id)}" aria-label="${esc(t('tx.delete'))}">${icon('trash')}</button></div>`;
-    }).join('');
+        + `<span class="a">${esc(money(x.amount))}</span>${del ? `<button type="button" class="icon-btn" data-del="${esc(x.id)}" aria-label="${esc(t('tx.delete'))}">${icon('trash')}</button>` : ''}</div>`;
+    };
+    const txHtml = live.map((x) => row(x, true)).join('');
+    // Summary's «آخر الحركات» card (wide screens only): the five latest, read-only.
+    $('#exRecent').innerHTML = live.length ? live.slice(0, 5).map((x) => row(x, false)).join('') : `<p class="note">${esc(t('tx.empty'))}</p>`;
     const insHtml = due.filter((d) => d.paid).map((d) => `<div class="tx"><span class="ic">${icon('clock')}</span><div class="m">${esc(t('sum.provider', { provider: provLabel(d.plan.provider) }))} · ${esc(d.plan.item)}<small>${esc(t('tx.installment', { k: d.k + 1, n: d.plan.n }))}</small></div><span class="a">${esc(money(d.amount))}</span><span class="ex-gap"></span></div>`).join('');
     $('#exTxs').innerHTML = txHtml || insHtml ? txHtml + insHtml : `<p class="note">${esc(t('tx.empty'))}</p>`;
   }
@@ -357,6 +361,7 @@ export function mountExpenses(el, ctx) {
     if (b.dataset.m) { cur = b.dataset.m; render(); return; }
     if (b.dataset.tab) { tab = b.dataset.tab; render(); return; }
     if (b.id === 'exNewPlan') { openPlan(); return; }
+    if (b.id === 'exLog') { openLog(); return; }
     if (b.dataset.more) { expanded.add(b.dataset.more); render(); return; }
     if (b.dataset.less) { expanded.delete(b.dataset.less); render(); return; }
     if (b.dataset.del) { const id = b.dataset.del; await mutate(() => { deleteTx(state, id); return t('toast.txDeleted'); }); return; }

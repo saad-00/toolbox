@@ -43,7 +43,7 @@ test.describe('Arabic', () => {
   test('log spending updates summary and toast', async ({ page }) => {
     await seed(page);
     await expect(page.locator('#exLeft')).toContainText('1,730.25');
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     const sheet = page.locator('#logSheet');
     await expect(sheet).toHaveClass(/\bon\b/);
     await expect(sheet.locator('h2')).toHaveText('سجّل صرف');
@@ -77,7 +77,7 @@ test.describe('Arabic', () => {
 
   test('full-amount button fills the remaining budget of the picked category', async ({ page }) => {
     await seed(page);
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     const sheet = page.locator('#logSheet');
     const full = page.locator('#logFull');
     // «قرض»: budget 200, nothing spent in Nov → full amount 200
@@ -94,7 +94,7 @@ test.describe('Arabic', () => {
     await page.locator('#logAmt').fill('50');
     await sheet.locator('button[type=submit]').click();
     await expect(sheet).not.toHaveClass(/\bon\b/);
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     await sheet.locator('.chips button', { hasText: /^قرض$/ }).click();
     await expect(full).toContainText('150');
     await full.click();
@@ -141,7 +141,7 @@ test.describe('Arabic', () => {
     await expect(page.locator(`[data-b="${catId(s, 'مصروف')}"]`)).toHaveValue('1000');
     expect(s.months['2026-12']).toBeUndefined();
     // first write to December creates it from November
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     await page.locator('#logAmt').fill('20');
     await page.locator('#logSheet .chips button', { hasText: /^قرض$/ }).click();
     await expect(page.locator('#logDate')).toHaveValue('2026-12-15');
@@ -180,7 +180,8 @@ test.describe('Arabic', () => {
     await expect(dues.filter({ hasText: 'تمارا' }).locator('input[type=checkbox]')).toBeChecked();
     await expect(dues.filter({ hasText: 'تابي' }).locator('input[type=checkbox]')).toBeChecked();
     await expect(page.locator('#exPlans .plan')).toHaveCount(2);
-    // the FAB opens «أضف قسط» on this tab
+    // on a phone the FAB opens «أضف قسط» on this tab (on a PC the FAB is replaced by the header button)
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#fab').click();
     await expect(page.locator('#planSheet')).toHaveClass(/\bon\b/);
     await expect(page.locator('#planSheet h2')).toHaveText('أضف قسط');
@@ -263,7 +264,7 @@ test.describe('Arabic', () => {
 
   test('invalid amount shows an error and saves nothing', async ({ page }) => {
     await seed(page);
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     await page.locator('#logAmt').fill('abc');
     await page.locator('#logSheet button[type=submit]').click();
     await expect(page.locator('#toast')).toHaveText('اكتب مبلغاً صحيحاً');
@@ -294,7 +295,7 @@ test.describe('Arabic', () => {
         return put.call(this, v, k);
       };
     });
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     await page.locator('#logAmt').fill('50');
     await page.locator('#logSheet button[type=submit]').click();
     await expect(page.locator('#toast')).toHaveText('تعذّر الحفظ على هذا الجهاز');
@@ -312,7 +313,7 @@ test.describe('Arabic', () => {
   test('a rejected amount leaves no stray month record', async ({ page }) => {
     await seed(page);
     await page.locator('#mNext').click();
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     await page.locator('#logAmt').fill('0');
     await page.locator('#logSheet button[type=submit]').click();
     await expect(page.locator('#toast')).toHaveText('اكتب مبلغاً صحيحاً');
@@ -330,6 +331,43 @@ test.describe('Arabic', () => {
     await page.locator('.tool[data-tool=expenses] .quick').click();
     await expect(page).toHaveURL(/#expenses$/);
     await expect(page.locator('#logSheet')).toHaveClass(/\bon\b/);
+  });
+});
+
+test.describe('PC and phone layout', () => {
+  test('PC: «سجّل صرف» sits in the header, no FAB, and the summary shows the latest transactions', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await seed(page);
+    await expect(page.locator('#fab')).toBeHidden();
+    await expect(page.locator('#exLog')).toBeVisible();
+    await expect(page.locator('.ex-recent')).toBeVisible();
+    await expect(page.locator('#exRecent .tx')).toHaveCount(5);
+    await expect(page.locator('#exRecent [data-del]')).toHaveCount(0); // read-only; deleting stays in «الحركات»
+    // content is centred: equal free space on both sides of the main column
+    const gaps = await page.evaluate(() => {
+      const m = document.querySelector('main').getBoundingClientRect();
+      const col = document.querySelector('.side').getBoundingClientRect();
+      return [Math.round(m.left), Math.round(col.left - m.right)];
+    });
+    expect(Math.abs(gaps[0] - gaps[1])).toBeLessThanOrEqual(30);
+    // the three summary cards sit side by side
+    const tops = await page.locator('#t-sum > .card').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(new Set(tops).size).toBe(1);
+    await page.locator('#exLog').click();
+    await expect(page.locator('#logSheet')).toHaveClass(/\bon\b/);
+    await expect(page.locator('#logSheet h2')).toHaveText('سجّل صرف');
+    await page.keyboard.press('Escape');
+    await page.locator('.ex-recent .ex-all').click();
+    await expect(page.locator('#t-tx')).toBeVisible();
+    await expect(page.locator('.tabs button[data-tab=tx]')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('phone keeps the FAB and hides the PC-only pieces', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await seed(page);
+    await expect(page.locator('#fab')).toBeVisible();
+    await expect(page.locator('#exLog')).toBeHidden();
+    await expect(page.locator('.ex-recent')).toBeHidden();
   });
 });
 
@@ -365,7 +403,8 @@ test.describe('storage read failure', () => {
     await page.evaluate(() => { window.__failGet = false; });
     await page.locator('#exRetry').click();
     await expect(page.locator('#exLeft')).toContainText('1,730.25');
-    await expect(page.locator('#fab')).toBeVisible();
+    await expect(page.locator('#fab')).toHaveClass(/\bon\b/);
+    await expect(page.locator('#exLog')).toBeVisible();
     expect(await page.evaluate(() => window.__puts)).toBe(0);
   });
 });
@@ -378,7 +417,7 @@ test.describe('English', () => {
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await expect(page.locator('.tabs button[data-tab=sum]')).toHaveText('Summary');
     await expect(page.locator('#exLeft')).toContainText('1,730.25');
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     await expect(page.locator('#logSheet h2')).toHaveText('Log spending');
     await expect(page.locator('#logSheet button[type=submit]')).toHaveText('Log');
     await page.keyboard.press('Escape');

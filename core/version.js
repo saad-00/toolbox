@@ -2,6 +2,11 @@
 // current version. Keep descriptions simple and non-technical (the user reads them).
 export const RELEASES = [
   {
+    v: '1.5', date: '2026-11-19',
+    ar: ['تصميم أوسع ومرتب على الكمبيوتر: المحتوى في الوسط ويستغل عرض الشاشة', 'زر «سجّل صرف» في أعلى صفحة المصاريف على الكمبيوتر', 'آخر الحركات تظهر في الملخص على الشاشات الكبيرة'],
+    en: ['A wider, tidier layout on computers: centred and using the full screen', '“Log spending” button at the top of Expenses on computers', 'Recent spending shows in the summary on large screens'],
+  },
+  {
     v: '1.4', date: '2026-11-15',
     ar: ['كلام النماذج صار أوضح وأسهل في القراءة', 'خانة للاسم وخانة لطريقة التواصل في «راسلنا»', 'تقدر تشوف وش الجديد في كل تحديث'],
     en: ['Form text is clearer and easier to read', 'Separate name and contact fields in “Contact us”', 'See what’s new after every update'],

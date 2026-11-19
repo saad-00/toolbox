@@ -446,7 +446,7 @@ test.describe('sync settings', () => {
     // a save in the app triggers one debounced sync ~5 s later
     await page.goto('./#expenses');
     await expect(page.locator('#exTxs, #exLeft').first()).toBeAttached();
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     await page.locator('#logAmt').fill('10');
     await page.locator('#logSheet .chips button').first().click();
     await page.locator('#logSheet button[type=submit]').click();

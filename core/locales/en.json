@@ -47,6 +47,8 @@
   "month.newEmpty": "New month with no earlier data. Fill in income and budget from the Budget tab.",
   "tab.list": "Expenses sections",
   "sum.cats": "Categories",
+  "sum.recent": "Recent spending",
+  "sum.allTx": "All transactions",
   "sum.of": "{spent} of {budget}",
   "sum.over": "Over budget by SAR {amount}",
   "sum.provider": "{provider} installments",
