@@ -31,7 +31,7 @@ async function seedContext(context) {
 }
 
 async function log(page, amount) {
-  await page.locator('#fab').click();
+  await page.locator('#exLog').click();
   const sheet = page.locator('#logSheet');
   await expect(sheet).toHaveClass(/\bon\b/);
   await page.locator('#logAmt').fill(amount);

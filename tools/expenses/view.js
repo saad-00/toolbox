@@ -60,6 +60,8 @@ export function mountExpenses(el, ctx) {
   const nowMonth = () => monthOf(todayLocal());
   let cur = nowMonth();
   let tab = 'sum';
+  // PC (wider than a phone): no tabs, one board. Must match the 821px breakpoint in core/theme.css.
+  const wide = matchMedia('(min-width: 821px)');
   let pick = null; // last chosen category in the log sheet
   let prov = 'tabby';
   const expanded = new Set();
@@ -104,14 +106,18 @@ export function mountExpenses(el, ctx) {
   function skeleton() {
     const rtl = lang === 'ar';
     el.innerHTML = `
-<div class="row"><h1>${esc(t('nav.expenses'))}</h1><span class="sp"></span><button class="btn sec" type="button" id="mToday">${esc(t('month.current'))}</button></div>
+<div class="row ex-head"><h1>${esc(t('nav.expenses'))}</h1>
 <div class="mstrip"><button class="icon-btn" type="button" id="mPrev" aria-label="${esc(t('month.prev'))}">${rtl ? '›' : '‹'}</button><div class="mscroll" id="mscroll" role="tablist" aria-label="${esc(t('month.list'))}"></div><button class="icon-btn" type="button" id="mNext" aria-label="${esc(t('month.next'))}">${rtl ? '‹' : '›'}</button></div>
+<span class="sp"></span><button class="btn sec" type="button" id="mToday">${esc(t('month.current'))}</button><button class="btn sec ex-pc" type="button" id="exBudBtn" aria-pressed="false"></button><button class="btn ex-log ex-pc" type="button" id="exLog">${icon('plus')}<span>${esc(t('sheet.log.title'))}</span></button></div>
 <div class="tabs" role="tablist" aria-label="${esc(t('tab.list'))}">${TABS.map(([k, key]) => `<button type="button" role="tab" data-tab="${k}">${esc(t(key))}</button>`).join('')}</div>
 <p class="note ex-new" id="exNew" hidden></p>
+<div class="ex-board">
 <div id="t-sum" class="grid2">
  <div class="card hero" id="exHero">
   <div class="lbl">${esc(t('sum.remainingNow'))}</div>
   <div class="big" id="exLeft"></div>
+  <div class="ex-meter" id="exMeterW"><div class="bar"><i id="exMeter"></i></div><span class="ex-now" id="exNow"></span></div>
+  <p class="ex-pace" id="exPace"></p>
   <div class="figs">
    <div><small>${esc(t('sum.income'))}</small><b id="fInc"></b></div>
    <div><small>${esc(t('sum.spent'))}</small><b id="fSpent"></b></div>
@@ -133,6 +139,7 @@ export function mountExpenses(el, ctx) {
  <div class="addcat"><input type="text" id="catName" placeholder="${esc(t('bud.newCat'))}" aria-label="${esc(t('bud.newCat'))}"><button class="btn" type="button" id="addCat">${esc(t('bud.addCat'))}</button></div>
  <p class="note">${esc(t('bud.note'))}</p>
  <div class="row ex-copy"><button class="btn sec" type="button" id="copyPrev">${esc(t('bud.copyPrev'))}</button></div>
+</div>
 </div>`;
     sheets();
   }
@@ -202,6 +209,30 @@ export function mountExpenses(el, ctx) {
     sc.scrollBy({ left: (r.left + r.width / 2) - (q.left + q.width / 2), behavior: 'auto' });
   }
 
+  // PC hero: how much of the income is spent, and (this month) how much of the month has passed.
+  function renderMeter(sum) {
+    const w = $('#exMeterW');
+    const pace = $('#exPace');
+    w.hidden = pace.hidden = !(sum.income > 0);
+    if (!(sum.income > 0)) return;
+    const pct = Math.round((sum.spent / sum.income) * 100);
+    const bar = $('#exMeter');
+    bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    bar.classList.toggle('over', pct > 100);
+    const today = todayLocal();
+    const now = monthOf(today);
+    const marker = $('#exNow');
+    marker.hidden = cur !== now;
+    if (cur === now) {
+      const [y, m, d] = today.split('-').map(Number);
+      const days = Math.round((d / new Date(y, m, 0).getDate()) * 100);
+      marker.style.insetInlineStart = `${days}%`;
+      pace.textContent = t('sum.pace', { spent: pct, days });
+    } else {
+      pace.textContent = t('sum.paceMonth', { spent: pct });
+    }
+  }
+
   function renderSummary(view, sum) {
     const cur$ = esc(t('currency'));
     $('#exLeft').innerHTML = `${esc(money(sum.remainingNow))} <span>${cur$}</span>`;
@@ -209,6 +240,7 @@ export function mountExpenses(el, ctx) {
     $('#fSpent').textContent = money(sum.spent);
     $('#fBud').textContent = money(sum.budgetTotal);
     $('#fAct').textContent = money(sum.remainingActual);
+    renderMeter(sum);
     const rows = sum.rows.map((r) => ({ label: catLabel(getCategory(view, r.catId), t), s: r.spent, b: r.budget }))
       .concat(providerRows(sum.providers))
       .filter((r) => r.s || r.b);
@@ -333,7 +365,11 @@ export function mountExpenses(el, ctx) {
     renderTx(due);
     renderIns(due);
     if (!keepBud) renderBud(view);
-    for (const [k] of TABS) el.querySelector(`#t-${k}`).hidden = k !== tab;
+    const board = wide.matches;
+    for (const [k] of TABS) el.querySelector(`#t-${k}`).hidden = board ? (k === 'bud') !== (tab === 'bud') : k !== tab;
+    const budBtn = $('#exBudBtn');
+    budBtn.textContent = t(tab === 'bud' ? 'bud.back' : 'bud.edit');
+    budBtn.setAttribute('aria-pressed', String(tab === 'bud'));
     el.querySelectorAll('.tabs button').forEach((b) => {
       const on = b.dataset.tab === tab;
       b.classList.toggle('on', on);
@@ -357,6 +393,8 @@ export function mountExpenses(el, ctx) {
     if (b.dataset.m) { cur = b.dataset.m; render(); return; }
     if (b.dataset.tab) { tab = b.dataset.tab; render(); return; }
     if (b.id === 'exNewPlan') { openPlan(); return; }
+    if (b.id === 'exLog') { openLog(); return; }
+    if (b.id === 'exBudBtn') { tab = tab === 'bud' ? 'sum' : 'bud'; render(); return; }
     if (b.dataset.more) { expanded.add(b.dataset.more); render(); return; }
     if (b.dataset.less) { expanded.delete(b.dataset.less); render(); return; }
     if (b.dataset.del) { const id = b.dataset.del; await mutate(() => { deleteTx(state, id); return t('toast.txDeleted'); }); return; }
@@ -539,6 +577,7 @@ export function mountExpenses(el, ctx) {
 
   skeleton();
   render();
+  wide.addEventListener('change', () => render({ keepBud: true }));
 
   return {
     // Re-localise (language change). Keeps the month, tab and open state.

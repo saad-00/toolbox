@@ -198,7 +198,7 @@ async function getJSON(rel) {
 }
 
 function renderNav() {
-  const html = NAV.map(([r, key, ic]) => `<a href="#${r}" data-r="${r}">${icon(ic)}${esc(t(key))}</a>`).join('');
+  const html = NAV.map(([r, key, ic]) => `<a href="#${r}" data-r="${r}" title="${esc(t(key))}">${icon(ic)}<span class="nl">${esc(t(key))}</span></a>`).join('');
   $('#sideNav').innerHTML = html;
   $('#bNav').innerHTML = html;
   $('#bNav').setAttribute('aria-label', t('nav.menu'));

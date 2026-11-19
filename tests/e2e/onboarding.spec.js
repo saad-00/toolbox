@@ -87,7 +87,7 @@ test.describe('first run', () => {
     // the salary is this month's income
     await page.goto('./#expenses');
     await expect(page.locator('#fInc')).toHaveText('6,560.19');
-    await page.locator('.tabs button[data-tab=bud]').click();
+    await page.locator('#exBudBtn').click(); // PC: the budget opens from the header (no tabs)
     await expect(page.locator('#exBuds .brow')).toHaveCount(8);
     await expect(page.locator('#exBuds')).not.toContainText('البنزين والمواصلات');
     // welcome never comes back
@@ -262,8 +262,7 @@ test.describe('settings', () => {
     const s = await stored(page);
     expect(s.tx).toHaveLength(7);
     expect(s.tx.map((x) => x.note)).toEqual(expect.arrayContaining(['from-backup', 'local-only']));
-    await page.goto('./#expenses');
-    await page.locator('.tabs button[data-tab=tx]').click();
+    await page.goto('./#expenses'); // PC board: transactions are on it, no tab to pick
     await expect(page.locator('#exTxs')).toContainText('from-backup');
     await expect(page.locator('#exTxs')).toContainText('local-only');
   });
@@ -446,7 +445,7 @@ test.describe('sync settings', () => {
     // a save in the app triggers one debounced sync ~5 s later
     await page.goto('./#expenses');
     await expect(page.locator('#exTxs, #exLeft').first()).toBeAttached();
-    await page.locator('#fab').click();
+    await page.locator('#exLog').click();
     await page.locator('#logAmt').fill('10');
     await page.locator('#logSheet .chips button').first().click();
     await page.locator('#logSheet button[type=submit]').click();

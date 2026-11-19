@@ -24,7 +24,7 @@ test('works offline after first load: hub renders and spending can be logged', a
   await page.evaluate(() => { location.hash = '#expenses'; });
   await expect(page.locator('#view-expenses')).toBeVisible();
   await expect(page.locator('#exLeft')).toContainText('1,730.25');
-  await page.locator('#fab').click();
+  await page.locator('#exLog').click();
   const sheet = page.locator('#logSheet');
   await expect(sheet).toHaveClass(/\bon\b/);
   await page.locator('#logAmt').fill('50');
