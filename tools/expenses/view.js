@@ -16,6 +16,7 @@ const latin = (v) => String(v ?? '').trim().replace(/[٠-٩]/g, (d) => DIGITS[d]
 const TABS = [['sum', 'tab.summary'], ['tx', 'tab.tx'], ['ins', 'tab.installments'], ['bud', 'tab.budget']];
 const PROVS = ['tabby', 'tamara', 'other'];
 const N_CHIPS = [3, 4, 6, 12, 24, 36, 48];
+const RECENT_N = 6; // rows in the summary's «آخر الحركات» (wide screens)
 const PROV_ALIASES = { tabby: ['تابي', 'tabby'], tamara: ['تمارا', 'tamara'] };
 
 // Amount fields that may legitimately be zero (income, budgets): '' or 0 → 0, else parseAmount.
@@ -104,14 +105,14 @@ export function mountExpenses(el, ctx) {
   function skeleton() {
     const rtl = lang === 'ar';
     el.innerHTML = `
-<div class="row"><h1>${esc(t('nav.expenses'))}</h1><span class="sp"></span><button class="btn sec" type="button" id="mToday">${esc(t('month.current'))}</button></div>
+<div class="row"><h1>${esc(t('nav.expenses'))}</h1><span class="sp"></span><button class="btn sec" type="button" id="mToday">${esc(t('month.current'))}</button><button class="btn wide-only ex-log" type="button" id="mLog">${icon('plus')}${esc(t('sheet.log.title'))}</button></div>
 <div class="mstrip"><button class="icon-btn" type="button" id="mPrev" aria-label="${esc(t('month.prev'))}">${rtl ? '›' : '‹'}</button><div class="mscroll" id="mscroll" role="tablist" aria-label="${esc(t('month.list'))}"></div><button class="icon-btn" type="button" id="mNext" aria-label="${esc(t('month.next'))}">${rtl ? '‹' : '›'}</button></div>
 <div class="tabs" role="tablist" aria-label="${esc(t('tab.list'))}">${TABS.map(([k, key]) => `<button type="button" role="tab" data-tab="${k}">${esc(t(key))}</button>`).join('')}</div>
 <p class="note ex-new" id="exNew" hidden></p>
 <div id="t-sum" class="grid2">
  <div class="card hero" id="exHero">
-  <div class="lbl">${esc(t('sum.remainingNow'))}</div>
-  <div class="big" id="exLeft"></div>
+  <div class="hero-main"><div class="lbl">${esc(t('sum.remainingNow'))}</div>
+  <div class="big" id="exLeft"></div></div>
   <div class="figs">
    <div><small>${esc(t('sum.income'))}</small><b id="fInc"></b></div>
    <div><small>${esc(t('sum.spent'))}</small><b id="fSpent"></b></div>
@@ -120,6 +121,8 @@ export function mountExpenses(el, ctx) {
   </div>
  </div>
  <div class="card"><h2>${esc(t('sum.cats'))}</h2><div id="exCats"></div></div>
+ <div class="card wide-only"><div class="row ex-mini-head"><h2>${esc(t('sum.recent'))}</h2><span class="sp"></span><button class="btn sec ex-small" type="button" data-tab="tx">${esc(t('sum.viewAll'))}</button></div><div id="exRecent"></div></div>
+ <div class="card wide-only"><div class="row ex-mini-head"><h2 id="exDueMiniT"></h2><span class="sp"></span><button class="btn sec ex-small" type="button" data-tab="ins">${esc(t('sum.viewAll'))}</button></div><div id="exDueMini"></div></div>
 </div>
 <div id="t-tx" class="card"><h2>${esc(t('tx.title'))}</h2><div id="exTxs"></div></div>
 <div id="t-ins" class="grid2">
@@ -233,17 +236,32 @@ export function mountExpenses(el, ctx) {
     return [...by.values()];
   }
 
+  // One transaction row; the full list adds a delete button, the summary's «آخر الحركات» does not.
+  function txRow(x, del) {
+    const c = getCategory(state, x.catId);
+    const label = c ? catLabel(c, t) : '';
+    return `<div class="tx"><span class="ic">${icon('tag')}</span><div class="m">${esc(label)}<small>${esc(x.date)}${x.note ? ` · ${esc(x.note)}` : ''}</small></div>`
+      + `<span class="a">${esc(money(x.amount))}</span>${del ? `<button type="button" class="icon-btn" data-del="${esc(x.id)}" aria-label="${esc(t('tx.delete'))}">${icon('trash')}</button>` : ''}</div>`;
+  }
+
   function renderTx(due) {
     const live = state.tx.filter((x) => !x.deleted && x.month === cur)
       .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
-    const txHtml = live.map((x) => {
-      const c = getCategory(state, x.catId);
-      const label = c ? catLabel(c, t) : '';
-      return `<div class="tx"><span class="ic">${icon('tag')}</span><div class="m">${esc(label)}<small>${esc(x.date)}${x.note ? ` · ${esc(x.note)}` : ''}</small></div>`
-        + `<span class="a">${esc(money(x.amount))}</span><button type="button" class="icon-btn" data-del="${esc(x.id)}" aria-label="${esc(t('tx.delete'))}">${icon('trash')}</button></div>`;
-    }).join('');
+    const txHtml = live.map((x) => txRow(x, true)).join('');
     const insHtml = due.filter((d) => d.paid).map((d) => `<div class="tx"><span class="ic">${icon('clock')}</span><div class="m">${esc(t('sum.provider', { provider: provLabel(d.plan.provider) }))} · ${esc(d.plan.item)}<small>${esc(t('tx.installment', { k: d.k + 1, n: d.plan.n }))}</small></div><span class="a">${esc(money(d.amount))}</span><span class="ex-gap"></span></div>`).join('');
     $('#exTxs').innerHTML = txHtml || insHtml ? txHtml + insHtml : `<p class="note">${esc(t('tx.empty'))}</p>`;
+    // Wide screens: the summary also shows the newest few, read-only («عرض الكل» opens the tab).
+    $('#exRecent').innerHTML = live.length ? live.slice(0, RECENT_N).map((x) => txRow(x, false)).join('') : `<p class="note">${esc(t('tx.empty'))}</p>`;
+  }
+
+  // Wide screens: this month's installments on the summary, read-only (paying stays in the tab).
+  function renderDueMini(due) {
+    $('#exDueMiniT').textContent = t('ins.dueIn', { month: monthName(cur, lang) });
+    $('#exDueMini').innerHTML = due.length ? due.map((d) => `<div class="tx ${d.paid ? 'ex-paid' : ''}"><span class="ic">${icon('clock')}</span>`
+      + `<div class="m">${esc(d.plan.item)} <span class="prov ${provClass(d.plan.provider)}">${esc(provLabel(d.plan.provider))}</span>`
+      + `<small>${esc(t('tx.installment', { k: d.k + 1, n: d.plan.n }))} · ${esc(t(d.paid ? 'ins.paid' : 'ins.unpaid'))}</small></div>`
+      + `<span class="a">${esc(money(d.amount))}</span></div>`).join('')
+      : `<p class="note">${esc(t('ins.noneDue'))}</p>`;
   }
 
   function schedHtml(plan) {
@@ -332,6 +350,7 @@ export function mountExpenses(el, ctx) {
     renderSummary(view, sum);
     renderTx(due);
     renderIns(due);
+    renderDueMini(due);
     if (!keepBud) renderBud(view);
     for (const [k] of TABS) el.querySelector(`#t-${k}`).hidden = k !== tab;
     el.querySelectorAll('.tabs button').forEach((b) => {
@@ -354,6 +373,7 @@ export function mountExpenses(el, ctx) {
     if (b.id === 'mPrev') return go(-1);
     if (b.id === 'mNext') return go(1);
     if (b.id === 'mToday') { cur = nowMonth(); render(); toast(t('month.back', { month: monthName(cur, lang) })); return; }
+    if (b.id === 'mLog') { openLog(); return; }
     if (b.dataset.m) { cur = b.dataset.m; render(); return; }
     if (b.dataset.tab) { tab = b.dataset.tab; render(); return; }
     if (b.id === 'exNewPlan') { openPlan(); return; }

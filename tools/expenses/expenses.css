@@ -25,3 +25,28 @@
 .ex-fullw{display:flex;justify-content:center;margin:-10px 0 14px}
 .ex-full{font:inherit;font-size:13px;font-weight:600;padding:6px 14px;border-radius:999px;border:1px solid var(--edge);background:var(--glass2);color:var(--ink);cursor:pointer;transition:transform .12s}
 .ex-full:active{transform:scale(.97)}
+
+/* Wide screens (≥1360px): header on two lines (title row; tabs + month strip), then the summary as
+   a dashboard — «الباقي الحالي» and the four figures as one row of cards, then البنود, آخر الحركات
+   and this month's installments side by side. #exHero and .figs dissolve (display:contents) so their
+   children become cells of the #t-sum grid; on narrow screens they stay one hero card. */
+.ex-log svg{width:18px;height:18px}
+.ex-mini-head{margin-bottom:4px}.ex-mini-head h2{margin:0}
+.ex-paid .m small{color:var(--ok)}
+@media(min-width:1360px){
+ #view-expenses.on{display:grid;grid-template-columns:520px minmax(0,1fr);column-gap:20px;align-items:center}
+ #view-expenses>.row,#view-expenses>.ex-new,#view-expenses>#t-sum,#view-expenses>#t-tx,#view-expenses>#t-ins,#view-expenses>#t-bud{grid-column:1/-1}
+ #view-expenses>.tabs{grid-row:2;grid-column:1;max-width:none;margin:16px 0 0}
+ #view-expenses>.mstrip{grid-row:2;grid-column:2;margin-top:16px}
+ #view-expenses #mLog{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:8px 16px}
+ #view-expenses>#t-tx,#view-expenses>#t-ins,#view-expenses>#t-bud{margin-top:20px}
+ #t-sum{grid-template-columns:repeat(6,minmax(0,1fr));gap:18px;margin-top:20px;align-items:stretch}
+ #exHero,#exHero .figs{display:contents}
+ #exHero .hero-main,#exHero .figs>div{border-radius:24px;border:1px solid var(--edge);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);box-shadow:0 10px 30px var(--shadow)}
+ #exHero .hero-main{grid-column:span 2;padding:24px 26px;background:linear-gradient(150deg,var(--glass2),var(--glass))}
+ #exHero .hero-main .big{margin:8px 0 0;font-size:clamp(44px,2.9vw,56px)}
+ #exHero .figs>div{padding:22px 24px;background:var(--glass);display:flex;flex-direction:column;justify-content:center}
+ #exHero .figs small{font-size:14px}
+ #exHero .figs b{font-size:clamp(20px,1.45vw,28px);margin-top:4px}
+ #t-sum>.card:not(#exHero){grid-column:span 2;align-self:start}
+}

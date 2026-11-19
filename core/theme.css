@@ -223,3 +223,16 @@ details .btn{margin-top:12px}
 .wn .v{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.wn .v b{font-size:16px}.wn .v small{color:var(--sub);font-size:12px}
 .wn .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--solid);color:var(--solid-ink)}
 .wn ul{margin:6px 0 0;padding-inline-start:18px;font-size:14px;line-height:1.75}
+
+/* Wide screens (≥1360px, docs/superpowers/specs/2026-11-19-desktop-dashboard-design.md):
+   the content fills the width instead of stopping at 1100px, and «سجّل صرف» moves from the
+   floating button into the expenses header. Narrower layouts are untouched. */
+@media(max-width:1359px){.wide-only{display:none!important}}
+@media(min-width:1360px){
+ main{max-width:none;padding-inline:40px}
+ .fab.on{display:none}
+ .tools{grid-template-columns:repeat(4,minmax(0,1fr))}
+ .tool[data-tool=expenses]{grid-column:span 2;min-height:200px}
+ .tool[data-tool=expenses] small{font-size:22px;font-weight:600;color:var(--ink)}
+ .fb-entry{max-width:none}
+}

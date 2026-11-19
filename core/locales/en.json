@@ -51,6 +51,8 @@
   "sum.over": "Over budget by SAR {amount}",
   "sum.provider": "{provider} installments",
   "sum.empty": "Nothing budgeted or spent this month yet.",
+  "sum.recent": "Recent",
+  "sum.viewAll": "View all",
   "tx.title": "This month’s transactions",
   "tx.empty": "No transactions yet. Tap + to log your first spending.",
   "tx.delete": "Delete transaction",
