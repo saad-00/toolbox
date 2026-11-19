@@ -3,8 +3,8 @@
 export const RELEASES = [
   {
     v: '1.5', date: '2026-11-19',
-    ar: ['تصميم أوسع ومرتب على الكمبيوتر: المحتوى في الوسط ويستغل عرض الشاشة', 'زر «سجّل صرف» في أعلى صفحة المصاريف على الكمبيوتر', 'آخر الحركات تظهر في الملخص على الشاشات الكبيرة'],
-    en: ['A wider, tidier layout on computers: centred and using the full screen', '“Log spending” button at the top of Expenses on computers', 'Recent spending shows in the summary on large screens'],
+    ar: ['على الكمبيوتر: المصاريف كلها في لوحة واحدة بدون تبويبات (الباقي، البنود، الحركات، الأقساط)', 'شريط يوضح كم صرفت من دخلك وكم مضى من الشهر', 'زرّا «سجّل صرف» و«عدّل الميزانية» في أعلى الصفحة، وقائمة جانبية أنحف'],
+    en: ['On computers: all of Expenses on one board, no tabs (remaining, categories, transactions, installments)', 'A bar showing how much of your income you’ve spent and how much of the month has passed', '“Log spending” and “Edit budget” at the top, and a slimmer side menu'],
   },
   {
     v: '1.4', date: '2026-11-15',

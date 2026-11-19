@@ -38,12 +38,13 @@ async function swipe(page, dx) {
 }
 
 test.describe('Arabic', () => {
-  test.use({ hasTouch: true });
+  // the tabbed layout (phones); the PC board has its own tests below
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
   test('log spending updates summary and toast', async ({ page }) => {
     await seed(page);
     await expect(page.locator('#exLeft')).toContainText('1,730.25');
-    await page.locator('#exLog').click();
+    await page.locator('#fab').click();
     const sheet = page.locator('#logSheet');
     await expect(sheet).toHaveClass(/\bon\b/);
     await expect(sheet.locator('h2')).toHaveText('سجّل صرف');
@@ -77,7 +78,7 @@ test.describe('Arabic', () => {
 
   test('full-amount button fills the remaining budget of the picked category', async ({ page }) => {
     await seed(page);
-    await page.locator('#exLog').click();
+    await page.locator('#fab').click();
     const sheet = page.locator('#logSheet');
     const full = page.locator('#logFull');
     // «قرض»: budget 200, nothing spent in Nov → full amount 200
@@ -94,7 +95,7 @@ test.describe('Arabic', () => {
     await page.locator('#logAmt').fill('50');
     await sheet.locator('button[type=submit]').click();
     await expect(sheet).not.toHaveClass(/\bon\b/);
-    await page.locator('#exLog').click();
+    await page.locator('#fab').click();
     await sheet.locator('.chips button', { hasText: /^قرض$/ }).click();
     await expect(full).toContainText('150');
     await full.click();
@@ -141,7 +142,7 @@ test.describe('Arabic', () => {
     await expect(page.locator(`[data-b="${catId(s, 'مصروف')}"]`)).toHaveValue('1000');
     expect(s.months['2026-12']).toBeUndefined();
     // first write to December creates it from November
-    await page.locator('#exLog').click();
+    await page.locator('#fab').click();
     await page.locator('#logAmt').fill('20');
     await page.locator('#logSheet .chips button', { hasText: /^قرض$/ }).click();
     await expect(page.locator('#logDate')).toHaveValue('2026-12-15');
@@ -264,7 +265,7 @@ test.describe('Arabic', () => {
 
   test('invalid amount shows an error and saves nothing', async ({ page }) => {
     await seed(page);
-    await page.locator('#exLog').click();
+    await page.locator('#fab').click();
     await page.locator('#logAmt').fill('abc');
     await page.locator('#logSheet button[type=submit]').click();
     await expect(page.locator('#toast')).toHaveText('اكتب مبلغاً صحيحاً');
@@ -295,7 +296,7 @@ test.describe('Arabic', () => {
         return put.call(this, v, k);
       };
     });
-    await page.locator('#exLog').click();
+    await page.locator('#fab').click();
     await page.locator('#logAmt').fill('50');
     await page.locator('#logSheet button[type=submit]').click();
     await expect(page.locator('#toast')).toHaveText('تعذّر الحفظ على هذا الجهاز');
@@ -313,7 +314,7 @@ test.describe('Arabic', () => {
   test('a rejected amount leaves no stray month record', async ({ page }) => {
     await seed(page);
     await page.locator('#mNext').click();
-    await page.locator('#exLog').click();
+    await page.locator('#fab').click();
     await page.locator('#logAmt').fill('0');
     await page.locator('#logSheet button[type=submit]').click();
     await expect(page.locator('#toast')).toHaveText('اكتب مبلغاً صحيحاً');
@@ -334,40 +335,99 @@ test.describe('Arabic', () => {
   });
 });
 
-test.describe('PC and phone layout', () => {
-  test('PC: «سجّل صرف» sits in the header, no FAB, and the summary shows the latest transactions', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
+test.describe('PC board («لوحة واحدة»)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('one board, no tabs: summary, categories, transactions and installments together', async ({ page }) => {
     await seed(page);
+    await expect(page.locator('#view-expenses .tabs')).toBeHidden();
     await expect(page.locator('#fab')).toBeHidden();
-    await expect(page.locator('#exLog')).toBeVisible();
-    await expect(page.locator('.ex-recent')).toBeVisible();
-    await expect(page.locator('#exRecent .tx')).toHaveCount(5);
-    await expect(page.locator('#exRecent [data-del]')).toHaveCount(0); // read-only; deleting stays in «الحركات»
-    // content is centred: equal free space on both sides of the main column
+    for (const id of ['#exHero', '#exCats', '#t-tx', '#exDues', '#exPlans']) await expect(page.locator(id)).toBeVisible();
+    await expect(page.locator('#t-bud')).toBeHidden();
+    await expect(page.locator('#exTxs .tx')).toHaveCount(7);
+    // hero and categories share the first row; transactions and installments the second
+    const top = (sel) => page.locator(sel).evaluate((e) => Math.round(e.getBoundingClientRect().top));
+    expect(await top('#exHero')).toBe(await top('#t-sum > .card:not(.hero)'));
+    expect(await top('#t-tx')).toBe(await top('#t-ins'));
+    expect(await top('#t-tx')).toBeGreaterThan(await top('#exHero'));
+    // only the chosen month shows in the header switcher; the arrows still move it
+    await expect(page.locator('.mscroll button:visible')).toHaveCount(1);
+    await expect(page.locator('.mscroll button.on')).toHaveAttribute('data-m', '2026-11');
+    await page.locator('#mNext').click();
+    await expect(page.locator('.mscroll button.on')).toHaveAttribute('data-m', '2026-12');
+    await page.locator('#mToday').click();
+    await expect(page.locator('.mscroll button.on')).toHaveAttribute('data-m', '2026-11');
+  });
+
+  test('spending meter: share of income spent, and how much of the month has passed', async ({ page }) => {
+    await seed(page);
+    // fixture: 4,829.94 spent of 6,560.19 → 74%; 15 Nov → 50% of the month
+    await expect(page.locator('#exPace')).toHaveText('صرفت 74% من دخلك، ومضى 50% من الشهر.');
+    expect(await page.locator('#exMeter').evaluate((e) => e.style.width)).toBe('74%');
+    await expect(page.locator('#exNow')).toBeVisible();
+    await page.locator('#mPrev').click(); // a past month: no "days passed" marker
+    await expect(page.locator('#exNow')).toBeHidden();
+  });
+
+  test('«عدّل الميزانية» opens the budget alone and «رجوع للملخص» brings the board back', async ({ page }) => {
+    await seed(page);
+    const btn = page.locator('#exBudBtn');
+    await expect(btn).toHaveText('عدّل الميزانية');
+    await btn.click();
+    await expect(page.locator('#t-bud')).toBeVisible();
+    await expect(page.locator('#exHero')).toBeHidden();
+    await expect(page.locator('#t-tx')).toBeHidden();
+    await expect(btn).toHaveText('رجوع للملخص');
+    await expect(btn).toHaveAttribute('aria-pressed', 'true');
+    await page.locator('#incIn').fill('7000');
+    await page.locator('#incIn').press('Tab');
+    await expect.poll(async () => (await stored(page)).months['2026-11'].income).toBe(700000);
+    await btn.click();
+    await expect(page.locator('#exHero')).toBeVisible();
+    await expect(page.locator('#t-bud')).toBeHidden();
+    await expect(page.locator('#fInc')).toHaveText('7,000');
+  });
+
+  test('«سجّل صرف» in the header logs spending; delete and pay work on the board', async ({ page }) => {
+    await seed(page);
+    await page.locator('#exLog').click();
+    await expect(page.locator('#logSheet')).toHaveClass(/\bon\b/);
+    await page.locator('#logAmt').fill('25');
+    await page.locator('#logSheet .chips button', { hasText: /^مصروف$/ }).click();
+    await page.locator('#logSheet button[type=submit]').click();
+    await expect(page.locator('#exTxs .tx')).toHaveCount(8);
+    await page.locator('#exTxs [data-del]').first().click();
+    await expect(page.locator('#exTxs .tx')).toHaveCount(7);
+    const tabby = page.locator('#exDues .due', { hasText: 'تابي' }).locator('input');
+    await tabby.uncheck();
+    await expect(tabby).not.toBeChecked();
+    await page.locator('#exNewPlan').click();
+    await expect(page.locator('#planSheet')).toHaveClass(/\bon\b/);
+  });
+
+  test('the sidebar becomes an icon rail with labels kept for screen readers', async ({ page }) => {
+    await seed(page);
+    const link = page.locator('#sideNav a[data-r=expenses]');
+    await expect(link).toHaveAttribute('title', 'المصاريف');
+    await expect(link).toHaveAccessibleName('المصاريف');
+    expect(await page.locator('.side').evaluate((e) => e.getBoundingClientRect().width)).toBeLessThan(90);
     const gaps = await page.evaluate(() => {
       const m = document.querySelector('main').getBoundingClientRect();
       const col = document.querySelector('.side').getBoundingClientRect();
       return [Math.round(m.left), Math.round(col.left - m.right)];
     });
-    expect(Math.abs(gaps[0] - gaps[1])).toBeLessThanOrEqual(30);
-    // the three summary cards sit side by side
-    const tops = await page.locator('#t-sum > .card').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
-    expect(new Set(tops).size).toBe(1);
-    await page.locator('#exLog').click();
-    await expect(page.locator('#logSheet')).toHaveClass(/\bon\b/);
-    await expect(page.locator('#logSheet h2')).toHaveText('سجّل صرف');
-    await page.keyboard.press('Escape');
-    await page.locator('.ex-recent .ex-all').click();
-    await expect(page.locator('#t-tx')).toBeVisible();
-    await expect(page.locator('.tabs button[data-tab=tx]')).toHaveAttribute('aria-selected', 'true');
+    expect(Math.abs(gaps[0] - gaps[1])).toBeLessThanOrEqual(40); // content centred
   });
 
-  test('phone keeps the FAB and hides the PC-only pieces', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+  test('narrowing to a phone brings the tabs and the FAB back', async ({ page }) => {
     await seed(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('#view-expenses .tabs')).toBeVisible();
     await expect(page.locator('#fab')).toBeVisible();
     await expect(page.locator('#exLog')).toBeHidden();
-    await expect(page.locator('.ex-recent')).toBeHidden();
+    await expect(page.locator('#exBudBtn')).toBeHidden();
+    await expect(page.locator('#t-tx')).toBeHidden(); // one tab at a time again
+    await expect(page.locator('#exHero')).toBeVisible();
   });
 });
 
@@ -410,14 +470,15 @@ test.describe('storage read failure', () => {
 });
 
 test.describe('English', () => {
-  test.use({ hasTouch: true });
+  // the tabbed layout (phones); the PC board has its own tests below
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
   test('English shows Log spending, ltr, mirrored swipe', async ({ page }) => {
     await seed(page, { lang: 'en' });
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await expect(page.locator('.tabs button[data-tab=sum]')).toHaveText('Summary');
     await expect(page.locator('#exLeft')).toContainText('1,730.25');
-    await page.locator('#exLog').click();
+    await page.locator('#fab').click();
     await expect(page.locator('#logSheet h2')).toHaveText('Log spending');
     await expect(page.locator('#logSheet button[type=submit]')).toHaveText('Log');
     await page.keyboard.press('Escape');
