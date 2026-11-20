@@ -9,8 +9,8 @@ export const PALETTES = [
   { id: 'mint', bg: '#eefaf3', b1: '#86efac', b2: '#bef264', b3: '#99f6e4' },
 ];
 
-const DARK = { '--ink': '#fff', '--sub': 'rgba(255,255,255,.72)', '--glass': 'rgba(255,255,255,.12)', '--glass2': 'rgba(255,255,255,.2)', '--edge': 'rgba(255,255,255,.28)', '--solid': 'rgba(255,255,255,.92)', '--shadow': 'rgba(0,0,0,.28)', '--ok': '#8BF5C8', '--bad': '#FFB3B3' };
-const LIGHT = { '--ink': '#1d2230', '--sub': 'rgba(29,34,48,.66)', '--glass': 'rgba(255,255,255,.45)', '--glass2': 'rgba(255,255,255,.66)', '--edge': 'rgba(255,255,255,.9)', '--solid': '#1d2230', '--solid-ink': '#fff', '--shadow': 'rgba(40,50,80,.14)', '--ok': '#13804f', '--bad': '#c2364a' };
+const DARK = { '--ink': '#fff', '--sub': 'rgba(255,255,255,.72)', '--glass': 'rgba(255,255,255,.12)', '--glass2': 'rgba(255,255,255,.2)', '--edge': 'rgba(255,255,255,.28)', '--solid': 'rgba(255,255,255,.92)', '--shadow': 'rgba(0,0,0,.28)', '--ok': '#8BF5C8', '--bad': '#FFB3B3', '--warn': '#FFD59E' };
+const LIGHT = { '--ink': '#1d2230', '--sub': 'rgba(29,34,48,.66)', '--glass': 'rgba(255,255,255,.45)', '--glass2': 'rgba(255,255,255,.66)', '--edge': 'rgba(255,255,255,.9)', '--solid': '#1d2230', '--solid-ink': '#fff', '--shadow': 'rgba(40,50,80,.14)', '--ok': '#13804f', '--bad': '#c2364a', '--warn': '#9a5b00' };
 
 // Luminance as in the approved prototype (Rec.709 weights on sRGB channels), light when > 0.5.
 export function isLight(hex) {

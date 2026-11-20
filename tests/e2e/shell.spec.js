@@ -93,7 +93,7 @@ test('manifest and service worker', async ({ page, request }) => {
   const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
   expect(scope).toBe('http://127.0.0.1:4173/');
   const keys = await page.evaluate(async () => { await navigator.serviceWorker.ready; for (let i = 0; i < 50; i++) { const k = await caches.keys(); if (k.length) return k; await new Promise((r) => setTimeout(r, 100)); } return []; });
-  expect(keys).toEqual(['toolbox-v12']);
+  expect(keys).toEqual(['toolbox-v13']);
 });
 
 test('content security policy is set and nothing violates it', async ({ page }) => {

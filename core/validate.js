@@ -38,11 +38,23 @@ function validPlan(p) {
     && typeof p.provider === 'string' && typeof p.item === 'string';
 }
 
+const dayOk = (d) => Number.isInteger(d) && d >= 1 && d <= 28;
+
+function validFixed(f) {
+  return base(f) && isId(f.catId) && pos(f.amount) && dayOk(f.day) && optStr(f.note) && optBool(f.active)
+    && typeof f.since === 'string' && MONTH_RE.test(f.since);
+}
+
+const validPrefs = (p) => p === undefined || (isObj(p) && stamp(p.updatedAt) && (p.monthStart === undefined || dayOk(p.monthStart)));
+
 export function validState(s) {
   if (!isObj(s) || !Array.isArray(s.cats) || !Array.isArray(s.tx) || !Array.isArray(s.plans) || !isObj(s.months)) return false;
   if (s.v !== undefined && !pos(s.v)) return false;
+  if (s.fixed !== undefined && !Array.isArray(s.fixed)) return false;
   return s.cats.every(validCat)
     && Object.entries(s.months).every(([k, m]) => validMonth(k, m))
     && s.tx.every(validTx)
-    && s.plans.every(validPlan);
+    && s.plans.every(validPlan)
+    && (s.fixed || []).every(validFixed)
+    && validPrefs(s.prefs);
 }

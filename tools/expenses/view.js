@@ -1,22 +1,34 @@
-// Expenses screens: month strip, Summary / Transactions / Installments / Budget tabs,
-// and the «سجّل صرف» / «أضف قسط» sheets. Reads through monthSummary (pure); every write goes
-// through the model/months/installments functions, then ctx.save(state), then a re-render.
+// Expenses screens: month strip / picker, Summary / Transactions / Installments / Budget / Reports,
+// and the «سجّل صرف» / «أضف قسط» / «مصروف ثابت» sheets. On a phone one tab shows at a time; on a PC
+// (see `wide`) the first three are one board and Budget / Reports open on their own.
+// Reads through monthSummary (pure); every write goes through the model functions, then
+// ctx.save(state), then a re-render. Deletes offer «تراجع».
 import { formatAmount, parseAmount } from '../../core/money.js';
 import { monthName } from '../../core/i18n.js';
-import { addCategory, deleteCategory, addTx, deleteTx, liveCats, getCategory, catLabel } from '../../core/model.js';
-import { monthOf, addMonth, todayLocal, ensureMonth, setIncome, setBudget } from '../../core/months.js';
-import { addPlan, schedule, dueIn, setPaid, deletePlan, remaining, paymentAmount } from './installments.js';
-import { monthSummary } from './calc.js';
-import { toast, openSheet, closeSheet } from '../../core/ui.js';
+import { addCategory, deleteCategory, addTx, deleteTx, liveCats, getCategory, catLabel, restoreRecord } from '../../core/model.js';
+import {
+  addMonth, todayLocal, ensureMonth, setIncome, setBudget, periodOf, periodBounds, periodProgress,
+  monthStartOf, setMonthStart, txMonth, daysBetween,
+} from '../../core/months.js';
+import { addPlan, schedule, dueIn, setPaid, deletePlan, remaining, paymentAmount, nextPayment } from './installments.js';
+import { monthSummary, projectedState } from './calc.js';
+import { addFixed, setFixedActive, deleteFixed, liveFixed, applyFixed } from './fixed.js';
+import { history as monthHistory, historyStats, exportCsv } from './reports.js';
+import { toast, openSheet, closeSheet, fieldError, clearFieldError } from '../../core/ui.js';
+
+export { projectedState };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const DIGITS = { '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9' };
 const latin = (v) => String(v ?? '').trim().replace(/[٠-٩]/g, (d) => DIGITS[d]).replace(/٫/g, '.');
-const TABS = [['sum', 'tab.summary'], ['tx', 'tab.tx'], ['ins', 'tab.installments'], ['bud', 'tab.budget']];
+const TABS = [['sum', 'tab.summary'], ['tx', 'tab.tx'], ['ins', 'tab.installments'], ['bud', 'tab.budget'], ['rep', 'tab.reports']];
+const ALONE = new Set(['bud', 'rep']); // PC: shown on their own instead of the board
 const PROVS = ['tabby', 'tamara', 'other'];
 const N_CHIPS = [3, 4, 6, 12, 24, 36, 48];
 const PROV_ALIASES = { tabby: ['تابي', 'tabby'], tamara: ['تمارا', 'tamara'] };
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const PAYDAY = 27; // offered first when switching to «يوم الراتب» (most salaries in KSA land on the 27th)
 
 // Amount fields that may legitimately be zero (income, budgets): '' or 0 → 0, else parseAmount.
 function parseAmount0(v) {
@@ -34,15 +46,6 @@ function latestBefore(state, month) {
   return src;
 }
 
-// What a month will look like: a month with no record shows the auto-copy it would get on first
-// write, computed on a shallow copy so browsing never creates records.
-export function projectedState(state, month) {
-  if (state.months[month]) return state;
-  const copy = { ...state, months: { ...state.months } };
-  ensureMonth(copy, month);
-  return copy;
-}
-
 export function projectedSummary(state, month) {
   return monthSummary(projectedState(state, month), month);
 }
@@ -53,25 +56,59 @@ function provKey(name) {
   return null;
 }
 
+// Arabic count wording: 1, 2, 3–10, 11+ (English uses the same keys).
+export function countKey(prefix, n) {
+  if (n === 1) return `${prefix}.1`;
+  if (n === 2) return `${prefix}.2`;
+  return n <= 10 ? `${prefix}.few` : `${prefix}.many`;
+}
+
 export function mountExpenses(el, ctx) {
   const { state, save } = ctx;
   let t = ctx.t;
   let lang = ctx.lang;
-  const nowMonth = () => monthOf(todayLocal());
-  let cur = nowMonth();
+  const start = () => monthStartOf(state);
+  const nowMonth = () => periodOf(todayLocal(), start());
+  let cur = monthFromHash() || nowMonth();
   let tab = 'sum';
   // PC (wider than a phone): no tabs, one board. Must match the 821px breakpoint in core/theme.css.
   const wide = matchMedia('(min-width: 821px)');
   let pick = null; // last chosen category in the log sheet
+  let fxPick = null; // category in the fixed-expense sheet
   let prov = 'tabby';
+  let txFilter = 'all'; // 'all' | category id | 'ins'
+  let txQuery = '';
+  let repTable = false;
+  let pickYear = null; // month picker open → the year it shows
   const expanded = new Set();
   el.dataset.mounted = '1';
 
   const money = (h) => formatAmount(h, lang);
+  const loc = () => (lang === 'ar' ? 'ar-SA-u-ca-gregory-nu-latn' : 'en-US');
+  const asDate = (d) => new Date(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
   const monthShort = (m) => {
     const [y, mo] = m.split('-').map(Number);
-    const loc = lang === 'ar' ? 'ar-SA-u-ca-gregory-nu-latn' : 'en-US';
-    return new Intl.DateTimeFormat(loc, { month: lang === 'ar' ? 'long' : 'short' }).format(new Date(y, mo - 1, 1));
+    return new Intl.DateTimeFormat(loc(), { month: lang === 'ar' ? 'long' : 'short' }).format(new Date(y, mo - 1, 1));
+  };
+  const dayMonth = (d) => new Intl.DateTimeFormat(loc(), { day: 'numeric', month: 'long' }).format(asDate(d));
+  // «اليوم، الخميس 19 نوفمبر» / «أمس، …» / «الخميس 19 نوفمبر» (+ year when not this year).
+  function dateLabel(d, { prefix = true } = {}) {
+    const today = todayLocal();
+    const opts = { day: 'numeric', month: 'long' };
+    if (d.slice(0, 4) !== today.slice(0, 4)) opts.year = 'numeric';
+    const wd = new Intl.DateTimeFormat(loc(), { weekday: 'long' }).format(asDate(d));
+    const s = `${wd} ${new Intl.DateTimeFormat(loc(), opts).format(asDate(d))}`;
+    if (!prefix) return s;
+    const diff = daysBetween(d, today);
+    const sep = lang === 'ar' ? '، ' : ', ';
+    if (diff === 0) return `${t('day.today')}${sep}${s}`;
+    if (diff === 1) return `${t('day.yesterday')}${sep}${s}`;
+    return s;
+  }
+  const daysText = (n) => (n === 1 ? t('days.last') : n === 2 ? t('days.two') : t(n <= 10 ? 'days.few' : 'days.many', { n }));
+  const soonText = (n) => {
+    if (n === 0) return t('soon.today');
+    return n > 0 ? t(countKey('soon', n), { n }) : t(countKey('late', -n), { n: -n });
   };
   const provLabel = (name) => { const k = provKey(name); return k ? t(`prov.${k}`) : name; };
   const provClass = (name) => provKey(name) || '';
@@ -80,7 +117,13 @@ export function mountExpenses(el, ctx) {
     const s = t(key, vars);
     return s === key ? t('err.generic') : s;
   };
-  const defDate = () => (monthOf(todayLocal()) === cur ? todayLocal() : `${cur}-15`);
+  // A date inside the shown month for new entries: today in the current month, else a day of `cur`.
+  const defDate = () => (cur === nowMonth() ? todayLocal() : `${cur}-${start() > 1 ? '01' : '15'}`);
+
+  function monthFromHash() {
+    const m = /^#expenses\/(\d{4}-(0[1-9]|1[0-2]))$/.exec(location.hash);
+    return m ? m[1] : null;
+  }
 
   // Put the shared state object back to a snapshot (it is owned by app.js, so mutate in place).
   function restore(snap) {
@@ -90,7 +133,8 @@ export function mountExpenses(el, ctx) {
 
   // One write: fn() mutates state and returns the success toast. A thrown validation error or a
   // failed save rolls the in-memory state back to the snapshot, toasts, and leaves any sheet open.
-  async function mutate(fn, { sheet = false, errVars, keepBud = false, onDone } = {}) {
+  // undo: a function that reverses the write; the toast then offers «تراجع».
+  async function mutate(fn, { sheet = false, errVars, keepBud = false, onDone, undo } = {}) {
     const snap = structuredClone(state);
     let msg;
     try { msg = fn(); } catch (err) { restore(snap); toast(errMsg(err, errVars)); return false; }
@@ -98,7 +142,8 @@ export function mountExpenses(el, ctx) {
     if (sheet) closeSheet();
     if (onDone) onDone();
     render({ keepBud });
-    if (msg) toast(msg);
+    if (msg && undo) toast(msg, { action: { label: t('toast.undo'), run: () => mutate(() => { undo(); return t('toast.undone'); }) } });
+    else if (msg) toast(msg);
     return true;
   }
 
@@ -107,17 +152,19 @@ export function mountExpenses(el, ctx) {
     const rtl = lang === 'ar';
     el.innerHTML = `
 <div class="row ex-head"><h1>${esc(t('nav.expenses'))}</h1>
-<div class="mstrip"><button class="icon-btn" type="button" id="mPrev" aria-label="${esc(t('month.prev'))}">${rtl ? '›' : '‹'}</button><div class="mscroll" id="mscroll" role="tablist" aria-label="${esc(t('month.list'))}"></div><button class="icon-btn" type="button" id="mNext" aria-label="${esc(t('month.next'))}">${rtl ? '‹' : '›'}</button></div>
-<span class="sp"></span><button class="btn sec" type="button" id="mToday">${esc(t('month.current'))}</button><button class="btn sec ex-pc" type="button" id="exBudBtn" aria-pressed="false"></button><button class="btn ex-log ex-pc" type="button" id="exLog">${icon('plus')}<span>${esc(t('sheet.log.title'))}</span></button></div>
-<div class="tabs" role="tablist" aria-label="${esc(t('tab.list'))}">${TABS.map(([k, key]) => `<button type="button" role="tab" data-tab="${k}">${esc(t(key))}</button>`).join('')}</div>
+<div class="mstrip"><button class="icon-btn" type="button" id="mPrev" aria-label="${esc(t('month.prev'))}">${rtl ? '›' : '‹'}</button><div class="mscroll" id="mscroll" role="tablist" aria-label="${esc(t('month.list'))}"></div><button class="icon-btn" type="button" id="mNext" aria-label="${esc(t('month.next'))}">${rtl ? '‹' : '›'}</button>
+<div class="mpick gl" id="mPick" role="dialog" aria-label="${esc(t('month.pick'))}" hidden></div></div>
+<span class="sp"></span><button class="btn sec" type="button" id="mToday">${esc(t('month.current'))}</button><button class="btn sec ex-pc" type="button" id="exRepBtn" aria-pressed="false"></button><button class="btn sec ex-pc" type="button" id="exBudBtn" aria-pressed="false"></button><button class="btn ex-log ex-pc" type="button" id="exLog">${icon('plus')}<span>${esc(t('sheet.log.title'))}</span><kbd class="ex-kbd" aria-hidden="true">N</kbd></button></div>
+<div class="tabs" role="tablist" aria-label="${esc(t('tab.list'))}">${TABS.map(([k, key]) => `<button type="button" role="tab" id="tab-${k}" aria-controls="t-${k}" data-tab="${k}">${esc(t(key))}</button>`).join('')}</div>
 <p class="note ex-new" id="exNew" hidden></p>
 <div class="ex-board">
-<div id="t-sum" class="grid2">
+<div id="t-sum" class="grid2" role="tabpanel" aria-labelledby="tab-sum">
  <div class="card hero" id="exHero">
-  <div class="lbl">${esc(t('sum.remainingNow'))}</div>
+  <div class="lbl">${esc(t('sum.remainingNow'))}<button type="button" class="info-btn" popovertarget="exInfo" aria-label="${esc(t('sum.info'))}">${icon('info')}</button></div>
   <div class="big" id="exLeft"></div>
   <div class="ex-meter" id="exMeterW"><div class="bar"><i id="exMeter"></i></div><span class="ex-now" id="exNow"></span></div>
   <p class="ex-pace" id="exPace"></p>
+  <div class="ex-daily" id="exDaily" hidden>${icon('cal')}<div><b id="exDailyAmt"></b> <span id="exDailyLbl"></span><small id="exDailySub"></small></div></div>
   <div class="figs">
    <div><small>${esc(t('sum.income'))}</small><b id="fInc"></b></div>
    <div><small>${esc(t('sum.spent'))}</small><b id="fSpent"></b></div>
@@ -125,20 +172,44 @@ export function mountExpenses(el, ctx) {
    <div><small>${esc(t('sum.remainingActual'))}</small><b id="fAct"></b></div>
   </div>
  </div>
- <div class="card"><h2>${esc(t('sum.cats'))}</h2><div id="exCats"></div></div>
+ <div class="card"><div class="row ex-card-head"><h2>${esc(t('sum.cats'))}</h2><span class="sp"></span><span class="ex-legend" id="exLegend"></span></div><div id="exCats"></div></div>
 </div>
-<div id="t-tx" class="card"><h2>${esc(t('tx.title'))}</h2><div id="exTxs"></div></div>
-<div id="t-ins" class="grid2">
+<div id="exInfo" class="pop gl" popover><h2>${esc(t('sum.infoTitle'))}</h2><dl>
+ <dt>${esc(t('sum.remainingNow'))}</dt><dd>${esc(t('sum.infoNow'))}</dd>
+ <dt>${esc(t('sum.spent'))}</dt><dd>${esc(t('sum.infoSpent'))}</dd>
+ <dt>${esc(t('sum.budgetTotal'))}</dt><dd>${esc(t('sum.infoPlanned'))}</dd>
+ <dt>${esc(t('sum.remainingActual'))}</dt><dd>${esc(t('sum.infoAfter'))}</dd></dl>
+ <button type="button" class="btn sec" popovertarget="exInfo" popovertargetaction="hide">${esc(t('sheet.close'))}</button></div>
+<div id="t-tx" class="card" role="tabpanel" aria-labelledby="tab-tx">
+ <div class="row ex-card-head"><h2>${esc(t('tx.title'))}</h2><span class="sp"></span><label class="ex-search">${icon('search')}<input type="search" id="txQ" placeholder="${esc(t('tx.searchPh'))}" aria-label="${esc(t('tx.search'))}" autocomplete="off"></label></div>
+ <div class="chips ex-tfilter" id="txF" role="group" aria-label="${esc(t('tx.filter'))}"></div>
+ <div id="exTxs"></div>
+</div>
+<div id="t-ins" class="grid2" role="tabpanel" aria-labelledby="tab-ins">
+ <div class="card ex-next" id="exNextCard" hidden><h2>${esc(t('ins.next'))}</h2><div id="exNext"></div></div>
  <div class="card"><h2 id="exDueTitle"></h2><div id="exDues"></div></div>
  <div class="card"><div class="row ex-plans-head"><h2>${esc(t('ins.plans'))}</h2><span class="sp"></span><button class="btn ex-small" type="button" id="exNewPlan">${esc(t('ins.add'))}</button></div><div id="exPlans"></div></div>
 </div>
-<div id="t-bud" class="card">
+<div id="t-bud" class="card" role="tabpanel" aria-labelledby="tab-bud">
  <h2>${esc(t('bud.title'))}</h2>
  <label class="brow"><span><b>${esc(t('bud.income'))}</b></span><input type="text" inputmode="decimal" id="incIn" autocomplete="off"></label>
  <div id="exBuds"></div>
- <div class="addcat"><input type="text" id="catName" placeholder="${esc(t('bud.newCat'))}" aria-label="${esc(t('bud.newCat'))}"><button class="btn" type="button" id="addCat">${esc(t('bud.addCat'))}</button></div>
+ <div class="addcat"><input type="text" id="catName" placeholder="${esc(t('bud.newCat'))}" aria-label="${esc(t('bud.newCat'))}" autocomplete="off"><button class="btn" type="button" id="addCat">${esc(t('bud.addCat'))}</button></div>
  <p class="note">${esc(t('bud.note'))}</p>
  <div class="row ex-copy"><button class="btn sec" type="button" id="copyPrev">${esc(t('bud.copyPrev'))}</button></div>
+</div>
+<div id="t-rep" class="ex-rep" role="tabpanel" aria-labelledby="tab-rep">
+ <div class="row ex-rep-head"><h2>${esc(t('tab.reports'))}</h2><span class="sp"></span><button class="btn sec ex-icon-btn" type="button" id="exExport">${icon('dl')}<span>${esc(t('rep.export'))}</span></button></div>
+ <div class="ex-rep-grid">
+  <div class="card ex-chart-card"><div class="row ex-card-head"><h2>${esc(t('rep.chart'))}</h2><span class="sp"></span><button class="ex-link" type="button" id="repView" aria-pressed="false"></button></div><p class="note ex-rep-stats" id="repStats"></p><div id="repChart"></div></div>
+  <div class="ex-rep-side">
+   <div class="card" id="fxCard"><div class="row ex-plans-head"><h2>${esc(t('fx.title'))}</h2><span class="sp"></span><button class="btn ex-small" type="button" id="fxAdd">${esc(t('fx.add'))}</button></div><p class="note ex-sub">${esc(t('fx.sub'))}</p><div id="fxList"></div></div>
+   <div class="card" id="msCard"><h2>${esc(t('ms.title'))}</h2><p class="note ex-sub">${esc(t('ms.sub'))}</p>
+    <div class="seg" role="radiogroup" aria-label="${esc(t('ms.title'))}"><button type="button" role="radio" data-ms="first">${esc(t('ms.first'))}</button><button type="button" role="radio" data-ms="payday">${esc(t('ms.payday'))}</button></div>
+    <label class="brow ex-msday" id="msDayW"><span>${esc(t('ms.day'))}</span><input type="text" inputmode="numeric" id="msDay" autocomplete="off"></label>
+    <p class="ex-msrange" id="msRange"></p></div>
+  </div>
+ </div>
 </div>
 </div>`;
     sheets();
@@ -146,14 +217,17 @@ export function mountExpenses(el, ctx) {
 
   let logSheet = document.getElementById('logSheet');
   let planSheet = document.getElementById('planSheet');
+  let fxSheet = document.getElementById('fxSheet');
+  const dfield = (id, label) => `<label class="dfield">${icon('cal')}<span id="${id}Txt" aria-hidden="true"></span><input type="date" id="${id}" aria-label="${esc(label)}"></label>`;
   function sheets() {
     if (!logSheet) {
-      logSheet = document.createElement('form');
-      logSheet.className = 'sheet'; logSheet.id = 'logSheet'; logSheet.noValidate = true;
-      document.body.appendChild(logSheet);
-      planSheet = document.createElement('form');
-      planSheet.className = 'sheet'; planSheet.id = 'planSheet'; planSheet.noValidate = true;
-      document.body.appendChild(planSheet);
+      const mk = (id) => {
+        const f = document.createElement('form');
+        f.className = 'sheet'; f.id = id; f.noValidate = true;
+        document.body.appendChild(f);
+        return f;
+      };
+      logSheet = mk('logSheet'); planSheet = mk('planSheet'); fxSheet = mk('fxSheet');
       wireSheets();
     }
     const close = `<button type="button" class="icon-btn" data-close aria-label="${esc(t('sheet.close'))}">✕</button>`;
@@ -163,38 +237,54 @@ export function mountExpenses(el, ctx) {
 <div class="amt"><input id="logAmt" type="text" inputmode="decimal" placeholder="0" aria-label="${esc(t('sheet.log.amount'))}" autocomplete="off"><span>${esc(t('currency'))}</span></div>
 <div class="ex-fullw"><button type="button" id="logFull" class="ex-full" hidden></button></div>
 <div class="chips" id="logChips" role="group" aria-label="${esc(t('sheet.log.cat'))}"></div>
-<div class="row ex-logrow"><div class="ex-date"><input type="date" id="logDate" aria-label="${esc(t('sheet.log.date'))}"></div><div class="ex-note"><input type="text" id="logNote" placeholder="${esc(t('sheet.log.note'))}" aria-label="${esc(t('sheet.log.note'))}" autocomplete="off"></div></div>
-<button class="btn ex-wide" type="submit">${esc(t('sheet.log.submit'))}</button>`;
+<div class="row ex-logrow"><div class="ex-date">${dfield('logDate', t('sheet.log.date'))}</div><div class="ex-note"><input type="text" id="logNote" placeholder="${esc(t('sheet.log.notePh'))}" aria-label="${esc(t('sheet.log.note'))}" autocomplete="off"></div></div>
+<button class="btn ex-wide" type="submit">${esc(t('sheet.log.submit'))}<kbd class="ex-kbd" aria-hidden="true">Enter</kbd></button>
+<p class="ex-keys" aria-hidden="true">${esc(t('sheet.log.keys'))}</p>`;
     planSheet.setAttribute('aria-label', t('sheet.plan.title'));
     planSheet.innerHTML = `
 <div class="row"><h2 class="sheet-h">${esc(t('sheet.plan.title'))}</h2><span class="sp"></span>${close}</div>
 <div class="fld"><span id="provL">${esc(t('plan.provider'))}</span><div class="chips ex-provs" id="provs" role="group" aria-labelledby="provL"></div></div>
 <label class="fld" id="provOtherW" hidden>${esc(t('plan.providerName'))}<input type="text" id="provOther" placeholder="${esc(t('plan.providerHint'))}" autocomplete="off"></label>
 <label class="fld">${esc(t('plan.item'))}<input type="text" id="pItem" placeholder="${esc(t('plan.itemHint'))}" autocomplete="off"></label>
-<div class="two"><label class="fld">${esc(t('plan.monthly'))}<input type="text" inputmode="decimal" id="pMonthly" placeholder="0" autocomplete="off"></label>
-<label class="fld">${esc(t('plan.months'))}<input type="text" inputmode="numeric" id="pN" value="4" autocomplete="off"></label></div>
+<div class="two"><label class="fld" id="pMonthlyW">${esc(t('plan.monthly'))}<input type="text" inputmode="decimal" id="pMonthly" placeholder="0" autocomplete="off"></label>
+<label class="fld" id="pNW">${esc(t('plan.months'))}<input type="text" inputmode="numeric" id="pN" value="4" autocomplete="off"></label></div>
 <div class="chips ex-nchips" id="nChips"></div>
-<label class="fld">${esc(t('plan.start'))}<input type="date" id="pStart"></label>
+<div class="fld">${esc(t('plan.start'))}${dfield('pStart', t('plan.start'))}</div>
 <label class="due ex-first"><input type="checkbox" id="pFirst" checked><span class="m">${esc(t('plan.firstPaid'))}</span></label>
 <p class="note ex-prev" id="pPrev" aria-live="polite"></p>
 <button class="btn ex-wide" type="submit">${esc(t('sheet.plan.submit'))}</button>`;
+    fxSheet.setAttribute('aria-label', t('sheet.fx.title'));
+    fxSheet.innerHTML = `
+<div class="row"><h2 class="sheet-h">${esc(t('sheet.fx.title'))}</h2><span class="sp"></span>${close}</div>
+<div class="amt"><input id="fxAmt" type="text" inputmode="decimal" placeholder="0" aria-label="${esc(t('sheet.log.amount'))}" autocomplete="off"><span>${esc(t('currency'))}</span></div>
+<div class="chips" id="fxChips" role="group" aria-label="${esc(t('sheet.log.cat'))}"></div>
+<div class="two"><label class="fld" id="fxDayW">${esc(t('fx.day'))}<input type="text" inputmode="numeric" id="fxDay" autocomplete="off"></label>
+<label class="fld">${esc(t('sheet.log.note'))}<input type="text" id="fxNote" placeholder="${esc(t('sheet.log.notePh'))}" autocomplete="off"></label></div>
+<button class="btn ex-wide" type="submit">${esc(t('sheet.fx.submit'))}</button>`;
   }
 
   const $ = (sel) => document.querySelector(sel);
+  const setDateText = (id) => { const v = $(`#${id}`).value; $(`#${id}Txt`).textContent = DATE_RE.test(v) ? dateLabel(v) : ''; };
 
   // ---------- render ----------
+  const hasData = (m) => !!state.months[m] || dueIn(state, m).length > 0 || state.tx.some((x) => !x.deleted && txMonth(state, x) === m);
+
   function renderStrip() {
     const now = nowMonth();
+    const s = start();
     const plans = state.plans.filter((p) => !p.deleted);
-    const firsts = [...Object.keys(state.months), ...plans.map((p) => monthOf(p.start)), cur, now].sort();
-    const lasts = [addMonth(now, 12), cur, ...plans.map((p) => addMonth(monthOf(p.start), p.n - 1))].sort();
+    const firsts = [...Object.keys(state.months), ...plans.map((p) => schedule(p, s)[0].month), cur, now].sort();
+    const lasts = [addMonth(now, 12), cur, ...plans.map((p) => schedule(p, s)[p.n - 1].month)].sort();
     const end = lasts[lasts.length - 1];
     const out = [];
+    const board = wide.matches;
     for (let m = addMonth(firsts[0], -1); m <= end; m = addMonth(m, 1)) {
       const has = !!state.months[m] || dueIn(state, m).length > 0;
       const cls = [m === cur && 'on', has && 'has', m === now && 'today'].filter(Boolean).join(' ');
       const y = m.slice(0, 4);
-      out.push(`<button type="button" role="tab" data-m="${m}" class="${cls}" aria-selected="${m === cur}" aria-label="${esc(monthName(m, lang))}">${esc(monthShort(m))}<small>${m.endsWith('-01') || m === cur ? y : '&nbsp;'}</small></button>`);
+      // PC: the chosen month is the button that opens the month picker.
+      const pop = board && m === cur ? ` aria-haspopup="dialog" aria-expanded="${pickYear !== null}" aria-controls="mPick"` : '';
+      out.push(`<button type="button" role="tab" data-m="${m}" class="${cls}" aria-selected="${m === cur}" aria-label="${esc(monthName(m, lang))}"${pop}>${esc(monthShort(m))}<small>${m.endsWith('-01') || m === cur ? y : '&nbsp;'}</small>${pop ? icon('down') : ''}</button>`);
     }
     $('#mscroll').innerHTML = out.join('');
     centerStrip();
@@ -203,29 +293,62 @@ export function mountExpenses(el, ctx) {
   function centerStrip() {
     const sc = $('#mscroll');
     const on = sc && sc.querySelector('.on');
-    if (!on) return;
+    if (!on || wide.matches) return;
     const r = on.getBoundingClientRect(); const q = sc.getBoundingClientRect();
     if (!q.width) return;
     sc.scrollBy({ left: (r.left + r.width / 2) - (q.left + q.width / 2), behavior: 'auto' });
   }
 
-  // PC hero: how much of the income is spent, and (this month) how much of the month has passed.
+  // Month picker (PC): a year of months, the chosen one marked, months with entries dotted.
+  function renderPicker() {
+    const p = $('#mPick');
+    if (pickYear === null) { p.hidden = true; return; }
+    const rtl = lang === 'ar';
+    const months = Array.from({ length: 12 }, (_, i) => `${pickYear}-${String(i + 1).padStart(2, '0')}`);
+    p.innerHTML = `<div class="row mp-head"><button type="button" class="icon-btn" data-py="-1" aria-label="${esc(t('month.prevYear'))}">${rtl ? '›' : '‹'}</button><b>${pickYear}</b><button type="button" class="icon-btn" data-py="1" aria-label="${esc(t('month.nextYear'))}">${rtl ? '‹' : '›'}</button></div>`
+      + `<div class="mp-grid">${months.map((m) => {
+        const has = hasData(m);
+        return `<button type="button" data-pm="${m}" class="${[m === cur && 'on', has && 'has', m === nowMonth() && 'today'].filter(Boolean).join(' ')}" aria-pressed="${m === cur}" aria-label="${esc(monthName(m, lang))}${has ? ` · ${esc(t('month.hasData'))}` : ''}">${esc(monthShort(m))}</button>`;
+      }).join('')}</div><p class="mp-key"><i aria-hidden="true"></i>${esc(t('month.hasData'))}</p>`;
+    p.hidden = false;
+  }
+  function openPicker() { pickYear = Number(cur.slice(0, 4)); renderStrip(); renderPicker(); ($('#mPick [data-pm].on') || $('#mPick [data-pm]'))?.focus(); }
+  function closePicker(focusBack = true) {
+    if (pickYear === null) return;
+    pickYear = null; renderPicker(); renderStrip();
+    if (focusBack) $('#mscroll button.on')?.focus();
+  }
+
+  // PC hero: share of income spent, how much of the month has passed, and the daily allowance.
   function renderMeter(sum) {
     const w = $('#exMeterW');
     const pace = $('#exPace');
+    const daily = $('#exDaily');
+    const prog = periodProgress(cur, todayLocal(), start());
+    daily.hidden = !(sum.income > 0 && prog);
+    if (!daily.hidden) {
+      const rem = sum.remainingNow;
+      daily.classList.toggle('bad', rem <= 0);
+      if (rem > 0) {
+        $('#exDailyAmt').textContent = `${money(Math.floor(rem / prog.left / 100) * 100)} ${t('currency')}`;
+        $('#exDailyLbl').textContent = t('sum.daily');
+        $('#exDailySub').textContent = t('sum.dailyUntil', { date: dayMonth(periodBounds(cur, start()).to), left: daysText(prog.left) });
+      } else {
+        $('#exDailyAmt').textContent = '';
+        $('#exDailyLbl').textContent = t('sum.dailyNone');
+        $('#exDailySub').textContent = '';
+      }
+    }
     w.hidden = pace.hidden = !(sum.income > 0);
     if (!(sum.income > 0)) return;
     const pct = Math.round((sum.spent / sum.income) * 100);
     const bar = $('#exMeter');
     bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
     bar.classList.toggle('over', pct > 100);
-    const today = todayLocal();
-    const now = monthOf(today);
     const marker = $('#exNow');
-    marker.hidden = cur !== now;
-    if (cur === now) {
-      const [y, m, d] = today.split('-').map(Number);
-      const days = Math.round((d / new Date(y, m, 0).getDate()) * 100);
+    marker.hidden = !prog;
+    if (prog) {
+      const days = Math.round((prog.passed / prog.length) * 100);
       marker.style.insetInlineStart = `${days}%`;
       pace.textContent = t('sum.pace', { spent: pct, days });
     } else {
@@ -244,13 +367,20 @@ export function mountExpenses(el, ctx) {
     const rows = sum.rows.map((r) => ({ label: catLabel(getCategory(view, r.catId), t), s: r.spent, b: r.budget }))
       .concat(providerRows(sum.providers))
       .filter((r) => r.s || r.b);
+    let near = 0; let over = 0;
     $('#exCats').innerHTML = rows.length ? rows.map(({ label, s, b }) => {
-      const over = s > b;
+      // over: spent more than planned; full: exactly used up; near: 90 % or more used.
+      const st = s > b ? 'over' : b && s === b ? 'full' : b && s / b >= 0.9 ? 'near' : '';
+      if (st === 'over') over++;
+      if (st === 'near') near++;
       const w = b ? Math.min(100, (s / b) * 100) : 100;
-      return `<div class="cat"><div class="t"><span>${esc(label)}</span><span>${esc(t('sum.of', { spent: money(s), budget: money(b) }))}</span></div>`
-        + `<div class="bar"><i class="${over ? 'over' : ''}" style="width:${w}%"></i></div>`
-        + `${over ? `<div class="over-t">${esc(t('sum.over', { amount: money(s - b) }))}</div>` : ''}</div>`;
+      const txt = st === 'over' ? t('sum.overBy', { amount: money(s - b) })
+        : st === 'full' ? t('sum.full') : t('sum.left', { left: money(b - s), budget: money(b) });
+      return `<div class="cat ${st}"><div class="t"><span>${esc(label)}</span><span class="st">${esc(txt)}</span></div>`
+        + `<div class="bar"><i class="${st === 'over' || st === 'near' ? st : ''}" style="width:${w}%"></i></div></div>`;
     }).join('') : `<p class="note">${esc(t('sum.empty'))}</p>`;
+    $('#exLegend').innerHTML = (near ? `<span><i class="near"></i>${esc(t('sum.near'))}</span>` : '')
+      + (over ? `<span><i class="over"></i>${esc(t('sum.overL'))}</span>` : '');
   }
 
   // Merge provider rows that name the same known provider (canonical 'tabby' and legacy «تابي»).
@@ -265,21 +395,56 @@ export function mountExpenses(el, ctx) {
     return [...by.values()];
   }
 
+  // Transactions grouped by day (newest first) with each day's total; paid installments last.
+  // The search box and the category chips filter in place (renderTxList only, so focus stays put).
+  let txData = { live: [], ins: [] };
   function renderTx(due) {
-    const live = state.tx.filter((x) => !x.deleted && x.month === cur)
+    const live = state.tx.filter((x) => !x.deleted && txMonth(state, x) === cur)
       .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
-    const txHtml = live.map((x) => {
-      const c = getCategory(state, x.catId);
-      const label = c ? catLabel(c, t) : '';
-      return `<div class="tx"><span class="ic">${icon('tag')}</span><div class="m">${esc(label)}<small>${esc(x.date)}${x.note ? ` · ${esc(x.note)}` : ''}</small></div>`
-        + `<span class="a">${esc(money(x.amount))}</span><button type="button" class="icon-btn" data-del="${esc(x.id)}" aria-label="${esc(t('tx.delete'))}">${icon('trash')}</button></div>`;
-    }).join('');
-    const insHtml = due.filter((d) => d.paid).map((d) => `<div class="tx"><span class="ic">${icon('clock')}</span><div class="m">${esc(t('sum.provider', { provider: provLabel(d.plan.provider) }))} · ${esc(d.plan.item)}<small>${esc(t('tx.installment', { k: d.k + 1, n: d.plan.n }))}</small></div><span class="a">${esc(money(d.amount))}</span><span class="ex-gap"></span></div>`).join('');
-    $('#exTxs').innerHTML = txHtml || insHtml ? txHtml + insHtml : `<p class="note">${esc(t('tx.empty'))}</p>`;
+    const ins = due.filter((d) => d.paid);
+    txData = { live, ins };
+    const used = new Set(live.map((x) => x.catId));
+    const opts = [['all', t('tx.all')], ...liveCats(state).filter((c) => used.has(c.id)).map((c) => [c.id, catLabel(c, t)])];
+    if (ins.length) opts.push(['ins', t('tx.ins')]);
+    if (!opts.some(([k]) => k === txFilter)) txFilter = 'all';
+    $('#txF').hidden = opts.length < 3;
+    $('#txF').innerHTML = opts.map(([k, label]) => `<button type="button" data-tf="${esc(k)}" class="${k === txFilter ? 'on' : ''}" aria-pressed="${k === txFilter}">${esc(label)}</button>`).join('');
+    $('#txQ').closest('.ex-search').hidden = live.length + ins.length < 2;
+    renderTxList();
+  }
+
+  function renderTxList() {
+    const { live, ins } = txData;
+    if (!live.length && !ins.length) { $('#exTxs').innerHTML = `<p class="note">${esc(t('tx.empty'))}</p>`; return; }
+    const q = txQuery.trim().toLowerCase();
+    const label = (x) => { const c = getCategory(state, x.catId); return c ? catLabel(c, t) : ''; };
+    const match = (...texts) => !q || texts.some((s) => String(s).toLowerCase().includes(q));
+    const rows = txFilter === 'ins' ? [] : live.filter((x) => (txFilter === 'all' || x.catId === txFilter) && match(label(x), x.note));
+    const insRows = txFilter === 'all' || txFilter === 'ins'
+      ? ins.filter((d) => match(d.plan.item, provLabel(d.plan.provider), t('sum.provider', { provider: provLabel(d.plan.provider) }))) : [];
+    const out = [];
+    let day = null;
+    for (let i = 0; i < rows.length; i++) {
+      const x = rows[i];
+      if (x.date !== day) {
+        day = x.date;
+        const total = rows.filter((r) => r.date === day).reduce((a, r) => a + r.amount, 0);
+        out.push(`<div class="tx-day"><b>${esc(dateLabel(day))}</b><span>${esc(money(total))} ${esc(t('currency'))}</span></div>`);
+      }
+      out.push(`<div class="tx"><span class="ic">${icon(x.fixed ? 'repeat' : 'tag')}</span><div class="m">${esc(label(x))}${x.note ? `<small>${esc(x.note)}</small>` : ''}</div>`
+        + `<span class="a">${esc(money(x.amount))}</span><button type="button" class="icon-btn" data-del="${esc(x.id)}" aria-label="${esc(t('tx.delete'))}">${icon('trash')}</button></div>`);
+    }
+    if (insRows.length) {
+      out.push(`<div class="tx-day"><b>${esc(t('tx.insGroup'))}</b><span>${esc(money(insRows.reduce((a, d) => a + d.amount, 0)))} ${esc(t('currency'))}</span></div>`);
+      for (const d of insRows) {
+        out.push(`<div class="tx"><span class="ic">${icon('clock')}</span><div class="m">${esc(t('sum.provider', { provider: provLabel(d.plan.provider) }))} · ${esc(d.plan.item)}<small>${esc(t('tx.installment', { k: d.k + 1, n: d.plan.n }))}</small></div><span class="a">${esc(money(d.amount))}</span><span class="ex-gap"></span></div>`);
+      }
+    }
+    $('#exTxs').innerHTML = out.length ? out.join('') : `<p class="note">${esc(t('tx.noMatch'))}</p>`;
   }
 
   function schedHtml(plan) {
-    const rows = schedule(plan);
+    const rows = schedule(plan, start());
     const chip = (r) => `<span class="${[r.paid && 'paid', r.month === cur && 'now'].filter(Boolean).join(' ')}">${esc(monthShort(r.month))} ${r.month.slice(2, 4)} · ${esc(money(r.amount))}</span>`;
     if (plan.n <= 8) return rows.map(chip).join('');
     if (expanded.has(plan.id)) return rows.map(chip).join('') + `<button type="button" class="more" data-less="${esc(plan.id)}">${esc(t('ins.hide'))}</button>`;
@@ -289,7 +454,20 @@ export function mountExpenses(el, ctx) {
     return rows.slice(a, a + 6).map(chip).join('') + `<button type="button" class="more" data-more="${esc(plan.id)}">${esc(t('ins.showAll', { n: plan.n }))}</button>`;
   }
 
+  function renderNext() {
+    const n = nextPayment(state, todayLocal());
+    $('#exNextCard').hidden = !n;
+    if (!n) return;
+    const d = new Date(Number(n.date.slice(0, 4)), Number(n.date.slice(5, 7)) - 1, Number(n.date.slice(8, 10)));
+    const mon = new Intl.DateTimeFormat(loc(), { month: 'long' }).format(d);
+    $('#exNext').innerHTML = `<div class="nx ${n.inDays < 0 ? 'late' : ''}"><div class="nx-d"><b>${d.getDate()}</b><small>${esc(mon)}</small></div>`
+      + `<div class="m">${esc(n.plan.item)} <span class="prov ${provClass(n.plan.provider)}">${esc(provLabel(n.plan.provider))}</span>`
+      + `<small>${esc(t('ins.payment', { k: n.k + 1, n: n.plan.n }))} · ${esc(soonText(n.inDays))}</small></div><b class="nx-a">${esc(money(n.amount))}</b></div>`
+      + `<label class="due nx-pay"><input type="checkbox" data-pay="${esc(n.plan.id)}:${n.k}"><span class="m">${esc(t('ins.markPaid'))}</span></label>`;
+  }
+
   function renderIns(due) {
+    renderNext();
     $('#exDueTitle').textContent = t('ins.dueIn', { month: monthName(cur, lang) });
     const dueAll = due.reduce((a, d) => a + d.amount, 0);
     const duePaid = due.reduce((a, d) => a + (d.paid ? d.amount : 0), 0);
@@ -315,9 +493,71 @@ export function mountExpenses(el, ctx) {
     $('#incIn').setAttribute('aria-label', t('bud.income'));
     $('#exBuds').innerHTML = liveCats(state).map((c) => {
       const label = catLabel(c, t);
-      return `<div class="brow"><span>${esc(label)}</span><input type="text" inputmode="decimal" autocomplete="off" data-b="${esc(c.id)}" value="${esc(plain(rec.budget[c.id] || 0))}" aria-label="${esc(t('bud.budgetFor', { cat: label }))}">`
+      return `<div class="brow"><span>${esc(label)}</span><input type="text" inputmode="decimal" autocomplete="off" id="bud-${esc(c.id)}" data-b="${esc(c.id)}" value="${esc(plain(rec.budget[c.id] || 0))}" aria-label="${esc(t('bud.budgetFor', { cat: label }))}">`
         + `<button type="button" class="icon-btn" data-cdel="${esc(c.id)}" aria-label="${esc(t('bud.deleteCat', { cat: label }))}">${icon('trash')}</button></div>`;
     }).join('');
+  }
+
+  // ---------- reports ----------
+  // A step that gives 3–5 gridlines: 1, 2 or 5 × a power of ten (halalas).
+  function niceStep(max) {
+    const raw = max / 4;
+    const p = 10 ** Math.floor(Math.log10(raw));
+    return [1, 2, 5, 10].map((m) => m * p).find((s) => s >= raw);
+  }
+
+  function renderRep() {
+    const rows = monthHistory(state, cur, todayLocal());
+    const st = historyStats(rows);
+    const any = rows.some((r) => r.spent || r.income);
+    $('#repView').hidden = !any;
+    $('#repView').textContent = t(repTable ? 'rep.chartView' : 'rep.table');
+    $('#repView').setAttribute('aria-pressed', String(repTable));
+    $('#repStats').textContent = st.months ? `${t('rep.avg', { avg: money(st.avg) })} ${t(st.over === 0 ? 'rep.over0' : st.over === 1 ? 'rep.over1' : 'rep.overN', { k: st.over })}` : '';
+    $('#repStats').hidden = !st.months;
+    const name = (m) => monthShort(m);
+    if (!any) { $('#repChart').innerHTML = `<p class="note">${esc(t('rep.empty'))}</p>`; }
+    else if (repTable) {
+      $('#repChart').innerHTML = `<table class="rc-table"><caption class="sr">${esc(t('rep.chart'))}</caption><thead><tr><th scope="col">${esc(t('rep.month'))}</th><th scope="col">${esc(t('rep.spent'))}</th><th scope="col">${esc(t('rep.income'))}</th></tr></thead><tbody>`
+        + rows.map((r) => `<tr><th scope="row">${esc(monthName(r.month, lang))}</th><td>${esc(money(r.spent))}</td><td>${esc(money(r.income))}</td></tr>`).join('') + '</tbody></table>';
+    } else {
+      const top = Math.max(...rows.map((r) => Math.max(r.spent, r.income)), 1);
+      const step = niceStep(top);
+      const max = Math.ceil((top * 1.08) / step) * step;
+      const pct = (v) => `${(v / max) * 100}%`;
+      const grid = [];
+      for (let v = step; v < max; v += step) grid.push(`<i class="rc-g" style="bottom:${pct(v)}"><span>${esc(money(v))}</span></i>`);
+      const list = rows.map((r) => `${monthName(r.month, lang)} ${money(r.spent)} / ${money(r.income)}`).join('، ');
+      $('#repChart').innerHTML = `<div class="rc" role="img" aria-label="${esc(t('rep.chartLabel', { list }))}">`
+        + `<div class="rc-key" aria-hidden="true"><span><i class="k-bar"></i>${esc(t('rep.spent'))}</span><span><i class="k-inc"></i>${esc(t('rep.income'))}</span></div>`
+        + `<div class="rc-plot" aria-hidden="true"><i class="rc-g rc-0" style="bottom:0"><span>0</span></i>${grid.join('')}<div class="rc-cols">`
+        + rows.map((r) => {
+          const over = r.income > 0 && r.spent > r.income;
+          const lbl = over ? t('rep.overBy', { amount: money(r.spent - r.income) }) : r.partial ? t('rep.soFar', { amount: money(r.spent) }) : '';
+          const tip = `${monthName(r.month, lang)} · ${t('rep.spent')} ${money(r.spent)} · ${t('rep.income')} ${money(r.income)}`;
+          return `<div class="rc-col" tabindex="0"><span class="rc-tip">${esc(tip)}</span>${lbl ? `<span class="rc-lbl ${over ? 'over' : ''}" style="bottom:calc(${pct(Math.max(r.spent, r.income))} + 6px)">${esc(lbl)}</span>` : ''}`
+            + `<i class="rc-bar ${over ? 'over' : ''} ${r.partial ? 'part' : ''}" style="height:${pct(r.spent)}"></i>`
+            + `${r.income ? `<i class="rc-inc" style="bottom:${pct(r.income)}"></i>` : ''}</div>`;
+        }).join('')
+        + `</div></div><div class="rc-x" aria-hidden="true">${rows.map((r) => `<span>${esc(name(r.month))}</span>`).join('')}</div></div>`;
+    }
+    // fixed expenses
+    const fx = liveFixed(state);
+    $('#fxList').innerHTML = fx.length ? fx.map((f) => {
+      const c = getCategory(state, f.catId);
+      const nm = (c ? catLabel(c, t) : '') + (f.note ? ` · ${f.note}` : '');
+      return `<div class="fx-row ${f.active ? '' : 'off'}"><span class="ic">${icon('repeat')}</span><div class="m">${esc(nm)}<small>${esc(t('fx.when', { day: f.day }))}${f.active ? '' : ` · ${esc(t('fx.paused'))}`}</small></div>`
+        + `<b class="ex-nowrap">${esc(money(f.amount))}</b><input type="checkbox" role="switch" data-fxon="${esc(f.id)}" ${f.active ? 'checked' : ''} aria-label="${esc(t('fx.toggle', { name: nm }))}">`
+        + `<button type="button" class="icon-btn" data-fxdel="${esc(f.id)}" aria-label="${esc(t('fx.delete', { name: nm }))}">${icon('trash')}</button></div>`;
+    }).join('') : `<p class="note">${esc(t('fx.empty'))}</p>`;
+    // month start
+    const s = start();
+    el.querySelectorAll('[data-ms]').forEach((b) => b.setAttribute('aria-checked', String((b.dataset.ms === 'payday') === (s > 1))));
+    $('#msDayW').hidden = s === 1;
+    if (document.activeElement !== $('#msDay')) $('#msDay').value = s > 1 ? String(s) : '';
+    const b = periodBounds(cur, s);
+    $('#msRange').hidden = s === 1;
+    $('#msRange').textContent = t('ms.range', { month: monthShort(cur), from: dayMonth(b.from), to: dayMonth(b.to) });
   }
 
   function renderChips() {
@@ -337,7 +577,7 @@ export function mountExpenses(el, ctx) {
   // What is left of the picked category's budget in the month of the chosen date.
   function fullLeft() {
     const d = $('#logDate').value;
-    const m = /^\d{4}-\d{2}-\d{2}$/.test(d) ? monthOf(d) : cur;
+    const m = DATE_RE.test(d) ? periodOf(d, start()) : cur;
     const row = projectedSummary(state, m).rows.find((r) => r.catId === pick);
     return row ? row.left : 0;
   }
@@ -349,11 +589,20 @@ export function mountExpenses(el, ctx) {
     if (left > 0) b.textContent = t('sheet.log.full', { amount: money(left) });
   }
 
+  // The address shows the month (#expenses/2026-12) unless it is the current one, so a reload or a
+  // shared link opens the same month.
+  function syncHash() {
+    if (!isOn()) return;
+    const want = cur === nowMonth() ? '#expenses' : `#expenses/${cur}`;
+    if (location.hash !== want) history.replaceState(null, '', want);
+  }
+
   function render({ keepBud = false } = {}) {
     const view = projectedState(state, cur);
     const sum = monthSummary(view, cur);
     const due = dueIn(state, cur);
     renderStrip();
+    renderPicker();
     const newNote = $('#exNew');
     if (state.months[cur]) newNote.hidden = true;
     else {
@@ -365,17 +614,20 @@ export function mountExpenses(el, ctx) {
     renderTx(due);
     renderIns(due);
     if (!keepBud) renderBud(view);
+    renderRep();
     const board = wide.matches;
-    for (const [k] of TABS) el.querySelector(`#t-${k}`).hidden = board ? (k === 'bud') !== (tab === 'bud') : k !== tab;
-    const budBtn = $('#exBudBtn');
-    budBtn.textContent = t(tab === 'bud' ? 'bud.back' : 'bud.edit');
-    budBtn.setAttribute('aria-pressed', String(tab === 'bud'));
+    for (const [k] of TABS) el.querySelector(`#t-${k}`).hidden = board ? (ALONE.has(tab) ? k !== tab : ALONE.has(k)) : k !== tab;
+    for (const [id, k, on, off] of [['#exBudBtn', 'bud', 'bud.back', 'bud.edit'], ['#exRepBtn', 'rep', 'bud.back', 'tab.reports']]) {
+      $(id).textContent = t(tab === k ? on : off);
+      $(id).setAttribute('aria-pressed', String(tab === k));
+    }
     el.querySelectorAll('.tabs button').forEach((b) => {
       const on = b.dataset.tab === tab;
       b.classList.toggle('on', on);
       b.setAttribute('aria-selected', String(on));
     });
     renderChips();
+    syncHash();
     dispatchEvent(new CustomEvent('toolbox:expenses-changed'));
   }
 
@@ -387,22 +639,46 @@ export function mountExpenses(el, ctx) {
   el.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
     if (!b || !el.contains(b)) return;
-    if (b.id === 'mPrev') return go(-1);
-    if (b.id === 'mNext') return go(1);
-    if (b.id === 'mToday') { cur = nowMonth(); render(); toast(t('month.back', { month: monthName(cur, lang) })); return; }
-    if (b.dataset.m) { cur = b.dataset.m; render(); return; }
+    if (b.id === 'mPrev') { closePicker(false); return go(-1); }
+    if (b.id === 'mNext') { closePicker(false); return go(1); }
+    if (b.id === 'mToday') { closePicker(false); cur = nowMonth(); render(); toast(t('month.back', { month: monthName(cur, lang) })); return; }
+    if (b.dataset.m) {
+      if (wide.matches && b.dataset.m === cur) { if (pickYear === null) openPicker(); else closePicker(); return; }
+      cur = b.dataset.m; render(); return;
+    }
+    if (b.dataset.py) { pickYear += Number(b.dataset.py); renderPicker(); $(`#mPick [data-py="${b.dataset.py}"]`)?.focus(); return; }
+    if (b.dataset.pm) { cur = b.dataset.pm; pickYear = null; render(); $('#mscroll button.on')?.focus(); return; }
     if (b.dataset.tab) { tab = b.dataset.tab; render(); return; }
+    if (b.dataset.tf) { txFilter = b.dataset.tf; renderTx(dueIn(state, cur)); return; }
     if (b.id === 'exNewPlan') { openPlan(); return; }
     if (b.id === 'exLog') { openLog(); return; }
     if (b.id === 'exBudBtn') { tab = tab === 'bud' ? 'sum' : 'bud'; render(); return; }
+    if (b.id === 'exRepBtn') { tab = tab === 'rep' ? 'sum' : 'rep'; render(); return; }
+    if (b.id === 'repView') { repTable = !repTable; renderRep(); $('#repView').focus(); return; }
+    if (b.id === 'exExport') { exportFile(); return; }
+    if (b.id === 'fxAdd') { openFixed(); return; }
+    if (b.dataset.ms) { await setStart(b.dataset.ms === 'payday' ? (start() > 1 ? start() : PAYDAY) : 1); return; }
     if (b.dataset.more) { expanded.add(b.dataset.more); render(); return; }
     if (b.dataset.less) { expanded.delete(b.dataset.less); render(); return; }
-    if (b.dataset.del) { const id = b.dataset.del; await mutate(() => { deleteTx(state, id); return t('toast.txDeleted'); }); return; }
-    if (b.dataset.pdel) { const id = b.dataset.pdel; await mutate(() => { deletePlan(state, id); return t('toast.planDeleted'); }); return; }
+    if (b.dataset.del) {
+      const id = b.dataset.del;
+      await mutate(() => { deleteTx(state, id); return t('toast.txDeleted'); }, { undo: () => restoreRecord(state.tx, id) });
+      return;
+    }
+    if (b.dataset.pdel) {
+      const id = b.dataset.pdel;
+      await mutate(() => { deletePlan(state, id); return t('toast.planDeleted'); }, { undo: () => restoreRecord(state.plans, id) });
+      return;
+    }
+    if (b.dataset.fxdel) {
+      const id = b.dataset.fxdel;
+      await mutate(() => { deleteFixed(state, id); return t('toast.fxDeleted'); }, { undo: () => restoreRecord(state.fixed, id) });
+      return;
+    }
     if (b.dataset.cdel) {
       const id = b.dataset.cdel;
       const label = catLabel(getCategory(state, id), t);
-      await mutate(() => { deleteCategory(state, id); return t('toast.catDeleted', { cat: label }); }, { errVars: { cat: label } });
+      await mutate(() => { deleteCategory(state, id); return t('toast.catDeleted', { cat: label }); }, { errVars: { cat: label }, undo: () => restoreRecord(state.cats, id) });
       return;
     }
     if (b.id === 'addCat') { await addCat(); return; }
@@ -418,8 +694,44 @@ export function mountExpenses(el, ctx) {
     }
   });
 
+  // Close the month picker on Escape or a click outside it.
+  document.addEventListener('click', (e) => {
+    // A target no longer in the page was just re-rendered by this view's own handler (e.g. the click that opened it).
+    if (pickYear === null || !document.contains(e.target)) return;
+    if (!e.target.closest('#mPick, #mscroll button.on')) closePicker(false);
+  });
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && pickYear !== null) { e.stopPropagation(); closePicker(); }
+  });
+
+  async function setStart(day) {
+    const input = $('#msDay');
+    if (!Number.isInteger(day) || day < 1 || day > 28) { fieldError(input, t('err.invalid-day'), $('#msDayW')); return; }
+    if (day === start()) return;
+    const wasNow = cur === nowMonth();
+    await mutate(() => {
+      setMonthStart(state, day);
+      applyFixed(state, todayLocal());
+      return day > 1 ? t('toast.msSet', { day }) : t('toast.msCal');
+    }, { onDone: () => { if (wasNow) cur = nowMonth(); } });
+  }
+
+  function exportFile() {
+    const d = todayLocal();
+    const url = URL.createObjectURL(new Blob([exportCsv(state, t)], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `toolbox-transactions-${d}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(t('toast.exported'));
+  }
+
   async function addCat() {
     const input = $('#catName');
+    if (!input.value.trim()) { fieldError(input, t('err.invalid-name'), $('.addcat')); return; }
     const ok = await mutate(() => {
       const id = addCategory(state, input.value);
       return t('toast.catAdded', { cat: catLabel(getCategory(state, id), t) });
@@ -429,6 +741,11 @@ export function mountExpenses(el, ctx) {
 
   el.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.id === 'catName') { e.preventDefault(); addCat(); }
+    if (e.key === 'Enter' && e.target.id === 'msDay') { e.preventDefault(); e.target.blur(); }
+  });
+
+  el.addEventListener('input', (e) => {
+    if (e.target.id === 'txQ') { txQuery = e.target.value; renderTxList(); }
   });
 
   el.addEventListener('change', async (e) => {
@@ -439,9 +756,24 @@ export function mountExpenses(el, ctx) {
       await mutate(() => { setPaid(state, pid, Number(k), paid); return t(paid ? 'toast.paid' : 'toast.unpaid'); });
       return;
     }
+    if (x.dataset.fxon) {
+      const f = (state.fixed || []).find((r) => r.id === x.dataset.fxon);
+      const c = f && getCategory(state, f.catId);
+      const name = c ? catLabel(c, t) : '';
+      const on = x.checked;
+      await mutate(() => { setFixedActive(state, x.dataset.fxon, on, todayLocal()); applyFixed(state, todayLocal()); return t(on ? 'toast.fxOn' : 'toast.fxOff', { name }); });
+      return;
+    }
+    if (x.id === 'msDay') {
+      const s = latin(x.value);
+      await setStart(/^\d+$/.test(s) ? Number(s) : NaN);
+      return;
+    }
     if (x.id !== 'incIn' && !x.dataset.b) return;
+    let h;
+    try { h = parseAmount0(x.value); } catch (err) { fieldError(x, errMsg(err), x.closest('.brow')); return; }
+    clearFieldError(x);
     const ok = await mutate(() => {
-      const h = parseAmount0(x.value);
       if (x.id === 'incIn') setIncome(state, cur, h); else setBudget(state, cur, x.dataset.b, h);
       x.value = plain(h);
       return '';
@@ -452,7 +784,7 @@ export function mountExpenses(el, ctx) {
   // Swipe between months: RTL finger → right = next; LTR mirrored.
   let x0 = null; let y0 = 0;
   el.addEventListener('touchstart', (e) => {
-    if (e.target.closest('.mscroll,input,.tabs') || e.touches.length !== 1) { x0 = null; return; }
+    if (e.target.closest('.mscroll,input,.tabs,.rc') || e.touches.length !== 1) { x0 = null; return; }
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
   }, { passive: true });
   el.addEventListener('touchend', (e) => {
@@ -463,23 +795,28 @@ export function mountExpenses(el, ctx) {
   }, { passive: true });
 
   addEventListener('keydown', (e) => {
-    if (!isOn() || sheetOpen() || e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.target.closest && e.target.closest('input,select,textarea,[contenteditable]')) return;
+    if (!isOn() || sheetOpen() || pickYear !== null || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.target.closest && e.target.closest('input,select,textarea,[contenteditable],[popover]')) return;
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     const next = lang === 'ar' ? 'ArrowLeft' : 'ArrowRight';
     go(e.key === next ? 1 : -1);
   });
 
-  addEventListener('toolbox:route', (e) => { if (e.detail && e.detail.view === 'expenses') centerStrip(); });
+  addEventListener('toolbox:route', (e) => {
+    if (!e.detail || e.detail.view !== 'expenses') { closePicker(false); return; }
+    const m = monthFromHash();
+    if (m && m !== cur) { cur = m; render(); } else syncHash();
+    centerStrip();
+  });
 
   // ---------- sheets ----------
   function openLog() {
-    $('#logAmt').value = '';
-    $('#logNote').value = '';
+    for (const id of ['#logAmt', '#logNote']) { $(id).value = ''; clearFieldError($(id)); }
     $('#logDate').value = defDate();
+    setDateText('logDate');
     renderChips();
     openSheet(logSheet);
-    setTimeout(() => { if (logSheet.classList.contains('on')) $('#logAmt').focus(); }, 250);
+    $('#logAmt').focus();
   }
 
   function renderProvs() {
@@ -497,8 +834,8 @@ export function mountExpenses(el, ctx) {
     if (!(n >= 1 && n <= 48)) { out.textContent = t('err.invalid-months'); return; }
     let monthly = 0;
     try { monthly = parseAmount($('#pMonthly').value); } catch { monthly = 0; }
-    const start = $('#pStart').value || `${cur}-01`;
-    const last = addMonth(monthOf(start), n - 1);
+    const startDate = $('#pStart').value || `${cur}-01`;
+    const last = schedule({ start: startDate, n, total: n, paid: [] }, start())[n - 1].month;
     out.dataset.last = last;
     out.textContent = monthly > 0
       ? t('plan.preview', { n, amount: money(monthly), total: money(monthly * n), last: monthName(last, lang) })
@@ -506,8 +843,10 @@ export function mountExpenses(el, ctx) {
   }
 
   function openPlan() {
+    for (const id of ['#pItem', '#pMonthly', '#provOther', '#pN']) clearFieldError($(id));
     for (const id of ['#pItem', '#pMonthly', '#provOther']) $(id).value = '';
     $('#pStart').value = defDate();
+    setDateText('pStart');
     $('#pFirst').checked = true;
     $('#pN').value = '4';
     prov = 'tabby';
@@ -516,9 +855,30 @@ export function mountExpenses(el, ctx) {
     openSheet(planSheet);
   }
 
+  function renderFxChips() {
+    const cats = liveCats(state);
+    if (!cats.some((c) => c.id === fxPick)) fxPick = (cats.find((c) => c.nameKey === 'cat.housing') || cats[0] || {}).id || null;
+    $('#fxChips').innerHTML = cats.map((c) => `<button type="button" data-fc="${esc(c.id)}" class="${c.id === fxPick ? 'on' : ''}" aria-pressed="${c.id === fxPick}">${esc(catLabel(c, t))}</button>`).join('');
+  }
+
+  function openFixed() {
+    for (const id of ['#fxAmt', '#fxDay', '#fxNote']) { $(id).value = ''; clearFieldError($(id)); }
+    $('#fxDay').value = String(Math.min(28, Number(todayLocal().slice(8, 10))));
+    renderFxChips();
+    openSheet(fxSheet);
+    $('#fxAmt').focus();
+  }
+
   function wireSheets() {
-    for (const s of [logSheet, planSheet]) {
+    for (const s of [logSheet, planSheet, fxSheet]) {
       s.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeSheet(); });
+      // The date fields show a written date; the native input sits on top (invisible) and opens the picker.
+      s.addEventListener('click', (e) => {
+        const i = e.target.closest('.dfield input');
+        if (i && typeof i.showPicker === 'function') { try { i.showPicker(); } catch { /* not allowed here */ } }
+      });
+      s.addEventListener('input', (e) => { if (e.target.matches('.dfield input')) setDateText(e.target.id); });
+      s.addEventListener('change', (e) => { if (e.target.matches('.dfield input')) setDateText(e.target.id); });
     }
     logSheet.addEventListener('click', (e) => {
       const b = e.target.closest('[data-c]');
@@ -529,29 +889,30 @@ export function mountExpenses(el, ctx) {
     logSheet.addEventListener('click', (e) => {
       if (!e.target.closest('#logFull')) return;
       const left = fullLeft();
-      if (left > 0) { $('#logAmt').value = formatAmount(left, 'en'); $('#logAmt').focus(); }
+      if (left > 0) { $('#logAmt').value = formatAmount(left, 'en'); clearFieldError($('#logAmt')); $('#logAmt').focus(); }
     });
     logSheet.addEventListener('change', (e) => { if (e.target.id === 'logDate') renderFull(); });
     logSheet.addEventListener('submit', async (e) => {
       e.preventDefault();
       // Validate everything before touching the month, so a rejected entry leaves no month record.
       let amount;
-      try { amount = parseAmount($('#logAmt').value); } catch (err) { toast(errMsg(err)); $('#logAmt').focus(); return; }
+      try { amount = parseAmount($('#logAmt').value); } catch (err) { fieldError($('#logAmt'), errMsg(err), logSheet.querySelector('.amt')); return; }
       const date = $('#logDate').value || defDate();
       const cat = getCategory(state, pick);
-      if (!cat || cat.deleted || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast(errMsg(new Error('invalid-tx'))); return; }
+      if (!cat || cat.deleted || !DATE_RE.test(date)) { toast(errMsg(new Error('invalid-tx'))); return; }
       const note = $('#logNote').value.trim();
+      const month = periodOf(date, start());
       await mutate(() => {
-        ensureMonth(state, monthOf(date)); // first write to a month creates it (auto-copy)
+        ensureMonth(state, month); // first write to a month creates it (auto-copy)
         addTx(state, { catId: cat.id, amount, date, note });
         return t('toast.logged', { amount: formatAmount(amount, lang), cat: catLabel(cat, t) });
-      }, { sheet: true, onDone: () => { cur = monthOf(date); } });
+      }, { sheet: true, onDone: () => { cur = month; } });
     });
     planSheet.addEventListener('click', (e) => {
       const p = e.target.closest('[data-p]');
       if (p) { prov = p.dataset.p; renderProvs(); return; }
       const n = e.target.closest('[data-n]');
-      if (n) { $('#pN').value = n.dataset.n; preview(); }
+      if (n) { $('#pN').value = n.dataset.n; clearFieldError($('#pN')); preview(); }
     });
     planSheet.addEventListener('input', (e) => { if (['pMonthly', 'pN', 'pStart'].includes(e.target.id)) preview(); });
     planSheet.addEventListener('change', (e) => { if (e.target.id === 'pStart') preview(); });
@@ -559,25 +920,48 @@ export function mountExpenses(el, ctx) {
       e.preventDefault();
       // The user enters the monthly payment; the plan stores the total (monthly × n), so every payment is equal.
       let monthly;
-      try { monthly = parseAmount($('#pMonthly').value); } catch (err) { toast(errMsg(err)); $('#pMonthly').focus(); return; }
+      try { monthly = parseAmount($('#pMonthly').value); } catch (err) { fieldError($('#pMonthly'), errMsg(err), $('#pMonthlyW').parentElement); return; }
       const n = readN();
       // Known providers are stored as canonical ids ('tabby' / 'tamara'); a custom name stays as typed.
       const provider = prov === 'other' ? ($('#provOther').value.trim() || t('prov.other')) : prov;
       const item = $('#pItem').value.trim() || t('plan.defaultItem');
-      const start = $('#pStart').value || `${cur}-01`;
-      if (!(n >= 1 && n <= 48)) { toast(errMsg(new Error('invalid-months'))); $('#pN').focus(); return; }
+      const startDate = $('#pStart').value || `${cur}-01`;
+      if (!(n >= 1 && n <= 48)) { fieldError($('#pN'), errMsg(new Error('invalid-months')), $('#pNW').parentElement); return; }
       const firstPaid = $('#pFirst').checked;
       const total = monthly * n;
       await mutate(() => {
-        addPlan(state, { provider, item, total, n, start, firstPaid });
+        addPlan(state, { provider, item, total, n, start: startDate, firstPaid });
         return t('toast.planAdded', { provider: provLabel(provider), n, amount: money(paymentAmount({ total, n }, 0)) });
+      }, { sheet: true });
+    });
+    fxSheet.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-fc]');
+      if (!b) return;
+      fxPick = b.dataset.fc;
+      renderFxChips();
+    });
+    fxSheet.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      let amount;
+      try { amount = parseAmount($('#fxAmt').value); } catch (err) { fieldError($('#fxAmt'), errMsg(err), fxSheet.querySelector('.amt')); return; }
+      const ds = latin($('#fxDay').value);
+      const day = /^\d+$/.test(ds) ? Number(ds) : NaN;
+      if (!(day >= 1 && day <= 28)) { fieldError($('#fxDay'), t('err.invalid-day'), $('#fxDayW').parentElement); return; }
+      const cat = getCategory(state, fxPick);
+      if (!cat || cat.deleted) { toast(errMsg(new Error('invalid-tx'))); return; }
+      const note = $('#fxNote').value.trim();
+      const name = catLabel(cat, t) + (note ? ` · ${note}` : '');
+      await mutate(() => {
+        addFixed(state, { catId: cat.id, amount, day, note }, todayLocal());
+        applyFixed(state, todayLocal());
+        return t('toast.fxAdded', { name, amount: formatAmount(amount, lang), day });
       }, { sheet: true });
     });
   }
 
   skeleton();
   render();
-  wide.addEventListener('change', () => render({ keepBud: true }));
+  wide.addEventListener('change', () => { closePicker(false); render({ keepBud: true }); });
 
   return {
     // Re-localise (language change). Keeps the month, tab and open state.
@@ -585,7 +969,8 @@ export function mountExpenses(el, ctx) {
       if (next.t) t = next.t;
       if (next.lang) lang = next.lang;
       const wasOpen = document.querySelector('.sheet.on');
-      if (wasOpen && (wasOpen === logSheet || wasOpen === planSheet)) closeSheet(false);
+      if (wasOpen && [logSheet, planSheet, fxSheet].includes(wasOpen)) closeSheet(false);
+      pickYear = null;
       skeleton();
       render();
     },

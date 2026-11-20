@@ -1,13 +1,23 @@
 // Monthly summary matching the Excel sheet. All values are integer halalas.
 // Pure: never mutates state (a missing month reads as income 0 / empty budget).
 import { liveCats } from '../../core/model.js';
+import { ensureMonth, txMonth } from '../../core/months.js';
 import { dueIn } from './installments.js';
+
+// What a month will look like: a month with no record shows the auto-copy it would get on first
+// write, computed on a shallow copy so browsing never creates records.
+export function projectedState(state, month) {
+  if (state.months[month]) return state;
+  const copy = { ...state, months: { ...state.months } };
+  ensureMonth(copy, month);
+  return copy;
+}
 
 export function monthSummary(state, month) {
   const rec = state.months[month];
   const income = rec ? rec.income : 0;
   const budgets = rec ? rec.budget : {};
-  const live = state.tx.filter((x) => !x.deleted && x.month === month);
+  const live = state.tx.filter((x) => !x.deleted && txMonth(state, x) === month);
 
   const rows = liveCats(state).map((c) => {
     const spent = live.reduce((a, x) => (x.catId === c.id ? a + x.amount : a), 0);

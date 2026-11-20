@@ -2,9 +2,12 @@
 import { detectLang, setLang, getLang, t, dir, loadLocales } from './i18n.js';
 import { loadSettings, saveSettings, loadState, saveState, requestPersist, onStateSaved, loadOutbox } from './store.js';
 import { createState, uid, DEFAULT_CAT_KEYS } from './model.js';
-import { monthOf, todayLocal } from './months.js';
+import { todayLocal, periodOf, monthStartOf, periodProgress, periodBounds } from './months.js';
 import { formatAmount } from './money.js';
-import { mountExpenses, projectedSummary } from '../tools/expenses/view.js';
+import { mountExpenses, projectedSummary, countKey } from '../tools/expenses/view.js';
+import { upcomingPayments } from '../tools/expenses/installments.js';
+import { applyFixed } from '../tools/expenses/fixed.js';
+import { getCategory, catLabel } from './model.js';
 import { applyPalette } from './theme.js';
 import { onRoute } from './router.js';
 import { toast } from './ui.js';
@@ -145,12 +148,48 @@ async function replaceState(next, { fromSync = false } = {}) {
   rerender();
 }
 
-// Hub card line: what is left this month.
+// Hub card line (what is left this month) and, on a PC, the summary above the tools.
 function updateHomeSub() {
   const e = document.getElementById('home-sub-expenses');
   if (!e || !state) return;
-  const sum = projectedSummary(state, monthOf(todayLocal()));
-  e.textContent = t('home.left', { amount: formatAmount(sum.remainingNow, getLang()) });
+  const today = todayLocal();
+  const s = monthStartOf(state);
+  const month = periodOf(today, s);
+  const lang = getLang();
+  const money = (h) => formatAmount(h, lang);
+  const sum = projectedSummary(state, month);
+  e.textContent = t('home.left', { amount: money(sum.remainingNow) });
+  const box = document.getElementById('homeSum');
+  if (!box) return;
+  const loc = lang === 'ar' ? 'ar-SA-u-ca-gregory-nu-latn' : 'en-US';
+  const asDate = (d) => new Date(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
+  const dm = (d) => new Intl.DateTimeFormat(loc, { day: 'numeric', month: 'long' }).format(asDate(d));
+  const mon = (d) => new Intl.DateTimeFormat(loc, { month: 'long' }).format(asDate(d));
+  const prog = periodProgress(month, today, s);
+  const pct = sum.income > 0 ? Math.round((sum.spent / sum.income) * 100) : null;
+  let line = '';
+  if (prog && sum.income > 0 && sum.remainingNow > 0) {
+    const left = prog.left === 1 ? t('days.last') : prog.left === 2 ? t('days.two') : t(prog.left <= 10 ? 'days.few' : 'days.many', { n: prog.left });
+    line = `${money(Math.floor(sum.remainingNow / prog.left / 100) * 100)} ${t('currency')} ${t('sum.daily')} · ${t('sum.dailyUntil', { date: dm(periodBounds(month, s).to), left })}`;
+  } else if (prog && sum.income > 0) line = t('sum.dailyNone');
+  const meter = pct === null ? '' : `<div class="ex-meter hs-meter"><div class="bar"><i class="${pct > 100 ? 'over' : ''}" style="width:${Math.min(100, Math.max(0, pct))}%"></i></div>`
+    + `${prog ? `<span class="ex-now" style="inset-inline-start:${Math.round((prog.passed / prog.length) * 100)}%"></span>` : ''}</div>`;
+  const ups = upcomingPayments(state, today, 2);
+  const soon = (n) => (n === 0 ? t('soon.today') : t(countKey('soon', n), { n }));
+  const live = state.tx.filter((x) => !x.deleted).sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt).slice(0, 3);
+  const dayWord = (d) => {
+    const diff = Math.round((asDate(today) - asDate(d)) / 864e5);
+    if (diff === 0) return t('day.today');
+    if (diff === 1) return t('day.yesterday');
+    return new Intl.DateTimeFormat(loc, diff < 7 ? { weekday: 'long' } : { day: 'numeric', month: 'long' }).format(asDate(d));
+  };
+  const provName = (p) => { const k = String(p).toLowerCase(); return k === 'tabby' || k === 'tamara' ? t(`prov.${k}`) : p; };
+  box.innerHTML = `<div class="card hero hs-main"><div class="lbl">${icon('wallet')}${esc(t('home.sumTitle', { month: mon(`${month}-01`) }))}</div>`
+    + `<div class="big">${esc(money(sum.remainingNow))} <span>${esc(t('currency'))}</span></div>${meter}`
+    + `${line ? `<p class="hs-line">${esc(line)}</p>` : ''}`
+    + `<div class="row hs-act"><button class="btn ex-log" type="button" data-quick="log">${icon('plus')}<span>${esc(t('sheet.log.title'))}</span></button><a class="btn sec" href="#expenses">${esc(t('home.open'))}</a></div></div>`
+    + `<div class="card"><h2>${esc(t('home.upcoming'))}</h2>${ups.length ? ups.map((u) => `<div class="hs-row"><div class="nx-d"><b>${asDate(u.date).getDate()}</b><small>${esc(mon(u.date))}</small></div><div class="m">${esc(u.plan.item)}<small>${esc(provName(u.plan.provider))} · ${esc(soon(u.inDays))}</small></div><b>${esc(money(u.amount))}</b></div>`).join('') : `<p class="note">${esc(t('home.noUpcoming'))}</p>`}</div>`
+    + `<div class="card"><h2>${esc(t('home.recent'))}</h2>${live.length ? live.map((x) => { const c = getCategory(state, x.catId); return `<div class="hs-row"><div class="m">${esc(c ? catLabel(c, t) : '')}<small>${esc(dayWord(x.date))}${x.note ? ` · ${esc(x.note)}` : ''}</small></div><b>${esc(money(x.amount))}</b></div>`; }).join('') : `<p class="note">${esc(t('home.noRecent'))}</p>`}</div>`;
 }
 
 function renderLoadError() {
@@ -217,10 +256,11 @@ function renderHome() {
     return `<div class="tool" data-tool="${esc(tool.id)}">${link}${quick}</div>`;
   }).join('');
   $('#view-home').innerHTML = `<div class="row"><h1>${esc(t('app.name'))}</h1></div>`
-    + `<p class="lead">${esc(t('home.lead'))}</p><div id="updBanner"></div><div id="homeBanner"></div><div class="tools">${cards}</div>`
-    + `<button class="fb-entry" type="button" id="fbOpen"><span class="ic">${icon('chat')}</span>`
+    + `<p class="lead">${esc(t('home.lead'))}</p><div id="updBanner"></div><div id="homeBanner"></div>`
+    + `<section class="home-sum" id="homeSum"></section><h2 class="home-tools-h">${esc(t('home.tools'))}</h2>`
+    + `<div class="tools">${cards}<button class="fb-entry" type="button" id="fbOpen"><span class="ic">${icon('chat')}</span>`
     + `<span><b>${esc(t('fb.entry'))}</b><small>${esc(t('fb.entrySub'))}</small></span>`
-    + `<svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg></button>`;
+    + `<svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg></button></div>`;
   renderBanner();
   renderUpdate();
 }
@@ -330,6 +370,17 @@ function wire() {
     if (e.detail && e.detail.source === 'fab') x.fab(); else x.openLog();
   });
   addEventListener('toolbox:expenses-changed', updateHomeSub);
+  // N («سجّل صرف») from anywhere, unless typing or a sheet is open. KeyN, so it works on an Arabic keyboard too.
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyN' || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.repeat) return;
+    if ($('#app').hidden || loadFailed || document.querySelector('.sheet.on') || popoverOpen()) return;
+    if (e.target.closest && e.target.closest('input,select,textarea,[contenteditable]')) return;
+    e.preventDefault();
+    if (location.hash.split('/')[0] !== '#expenses') location.hash = '#expenses';
+    dispatchEvent(new CustomEvent('toolbox:log'));
+  });
+  // Back to the app on a new day: log the fixed expenses that became due.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') logFixed(); });
   addEventListener('online', autoSyncSoon);
   addEventListener('online', () => ensureFeedback().flush());
   onStateSaved(onOtherTabSaved);
@@ -390,6 +441,17 @@ function runWelcome() {
   });
 }
 
+// An open popover (e.g. «ما معنى هذه الأرقام؟»); older browsers have no :popover-open.
+function popoverOpen() {
+  try { return !!document.querySelector(':popover-open'); } catch { return false; }
+}
+
+// Fixed monthly expenses that are due by today become transactions (saved, then shown).
+function logFixed() {
+  if (loadFailed || !state) return;
+  if (applyFixed(state, todayLocal())) save(state).then(rerender).catch(() => {});
+}
+
 async function boot() {
   try { settings = (await loadSettings()) || {}; } catch { settings = {}; settingsOk = false; }
   const [ar, en, list] = await Promise.all([
@@ -408,6 +470,7 @@ async function boot() {
   // Welcome only on a successful read that found nothing, on a device that never finished it.
   if (!loadFailed && freshStart && settings.onboarded !== true) await runWelcome();
   if (!loadFailed && !state) state = initialState();
+  logFixed();
   wire();
   applyLanguage(settings.lang ?? detectLang(navigator.languages));
   onRoute(show);

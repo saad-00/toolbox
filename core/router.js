@@ -1,8 +1,9 @@
-// Hash router: '#expenses' → 'expenses'. Unknown or empty → 'home'.
+// Hash router: '#expenses' → 'expenses' ('#expenses/2026-12' too: the view reads the month itself).
+// Unknown or empty → 'home'.
 export const ROUTES = ['home', 'expenses', 'prefs'];
 
 export function route(hash) {
-  const r = String(hash || '').replace(/^#\/?/, '');
+  const r = String(hash || '').replace(/^#\/?/, '').split('/')[0];
   return ROUTES.includes(r) ? r : 'home';
 }
 
