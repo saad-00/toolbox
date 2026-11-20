@@ -54,7 +54,7 @@ test.describe('Arabic', () => {
     await sheet.locator('button[type=submit]').click();
     await expect(sheet).not.toHaveClass(/\bon\b/);
     await expect(page.locator('#exLeft')).toContainText('1,680.25');
-    await expect(page.locator('#toast')).toHaveText('أُضيف 50 ر.س إلى تم الصرف · مصروف');
+    await expect(page.locator('#toast')).toHaveText('سُجّل 50 ر.س · مصروف');
     const s = await stored(page);
     const tx = s.tx.filter((x) => !x.deleted && x.date === '2026-11-15');
     expect(tx).toHaveLength(1);
@@ -147,7 +147,7 @@ test.describe('Arabic', () => {
     await page.locator('#logSheet .chips button', { hasText: /^قرض$/ }).click();
     await expect(page.locator('#logDate')).toHaveValue('2026-12-15');
     await page.locator('#logSheet button[type=submit]').click();
-    await expect(page.locator('#toast')).toHaveText('أُضيف 20 ر.س إلى تم الصرف · قرض');
+    await expect(page.locator('#toast')).toHaveText('سُجّل 20 ر.س · قرض');
     s = await stored(page);
     expect(s.months['2026-12'].income).toBe(656019);
     expect(s.months['2026-12'].budget).toEqual(s.months['2026-11'].budget);
@@ -230,7 +230,7 @@ test.describe('Arabic', () => {
     // canonical 'tabby' and the fixture's legacy «تابي» share one summary row
     await page.locator('.tabs button[data-tab=sum]').click();
     await expect(page.locator('#exCats .cat', { hasText: 'أقساط تابي' })).toHaveCount(1);
-    await expect(page.locator('#exCats .cat', { hasText: 'أقساط تابي' })).toContainText('1,631 من 1,631');
+    await expect(page.locator('#exCats .cat', { hasText: 'أقساط تابي' })).toContainText('اكتمل') // paid in full;
     expect(p.paid[0]).toBe(true);
   });
 
@@ -268,7 +268,9 @@ test.describe('Arabic', () => {
     await page.locator('#fab').click();
     await page.locator('#logAmt').fill('abc');
     await page.locator('#logSheet button[type=submit]').click();
-    await expect(page.locator('#toast')).toHaveText('اكتب مبلغاً صحيحاً');
+    // the error sits under the amount field (not in a toast) and is tied to it
+    await expect(page.locator('#logAmt-err')).toHaveText('اكتب المبلغ بأرقام فقط، مثل 45 أو 12.50');
+    await expect(page.locator('#logAmt')).toHaveAttribute('aria-invalid', 'true');
     await expect(page.locator('#logSheet')).toHaveClass(/\bon\b/);
     expect((await stored(page)).tx).toHaveLength(5);
   });
@@ -317,7 +319,9 @@ test.describe('Arabic', () => {
     await page.locator('#fab').click();
     await page.locator('#logAmt').fill('0');
     await page.locator('#logSheet button[type=submit]').click();
-    await expect(page.locator('#toast')).toHaveText('اكتب مبلغاً صحيحاً');
+    // the error sits under the amount field (not in a toast) and is tied to it
+    await expect(page.locator('#logAmt-err')).toHaveText('اكتب المبلغ بأرقام فقط، مثل 45 أو 12.50');
+    await expect(page.locator('#logAmt')).toHaveAttribute('aria-invalid', 'true');
     expect(Object.keys((await stored(page)).months)).toEqual(['2026-11']);
     await page.keyboard.press('Escape');
     await expect(page.locator('#exNew')).toBeVisible();
@@ -480,7 +484,7 @@ test.describe('English', () => {
     await expect(page.locator('#exLeft')).toContainText('1,730.25');
     await page.locator('#fab').click();
     await expect(page.locator('#logSheet h2')).toHaveText('Log spending');
-    await expect(page.locator('#logSheet button[type=submit]')).toHaveText('Log');
+    await expect(page.locator('#logSheet button[type=submit]')).toHaveAccessibleName('Log');
     await page.keyboard.press('Escape');
     const on = page.locator('.mscroll button.on');
     await swipe(page, -120); // LTR: finger moves left → next month

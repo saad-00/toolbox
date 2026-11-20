@@ -2,7 +2,7 @@
 // Rule: union by id; higher updatedAt wins; tie -> greater JSON.stringify (deterministic).
 
 const copy = (x) => JSON.parse(JSON.stringify(x));
-const KNOWN = new Set(['v', 'cats', 'months', 'tx', 'plans']);
+const KNOWN = new Set(['v', 'cats', 'months', 'tx', 'plans', 'fixed', 'prefs']);
 
 // x comes from side a, y from side b. tieB: on equal updatedAt side b wins (same-device saves).
 function pick(x, y, tieB = false) {
@@ -65,6 +65,10 @@ export function mergeStates(a, b, { orPaid: useOr = true, tieB = false, keepOrde
     tx,
     plans: mergeList(a.plans, b.plans, useOr ? orPaid : null, lo),
   };
+  // Fixed monthly expenses: records like the others. Shared preferences (month start day): one
+  // record, newest wins. Both are left out when neither side has them, so older states stay as they were.
+  if (a.fixed || b.fixed) out.fixed = mergeList(a.fixed, b.fixed, null, lo);
+  if (a.prefs || b.prefs) out.prefs = copy(a.prefs && b.prefs ? pick(a.prefs, b.prefs, tieB) : (a.prefs || b.prefs));
   // Top-level keys this version does not know (added by a newer app) are carried through, not
   // dropped: the side with the greater v wins; equal v -> b on a same-device save, else the
   // greater JSON (commutative); a key only one side has is kept.

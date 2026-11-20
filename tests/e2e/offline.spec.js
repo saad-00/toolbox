@@ -31,5 +31,5 @@ test('works offline after first load: hub renders and spending can be logged', a
   await sheet.locator('.chips button', { hasText: /^مصروف$/ }).click();
   await sheet.locator('button[type=submit]').click();
   await expect(page.locator('#exLeft')).toContainText('1,680.25');
-  await expect(page.locator('#toast')).toHaveText('أُضيف 50 ر.س إلى تم الصرف · مصروف');
+  await expect(page.locator('#toast')).toHaveText('سُجّل 50 ر.س · مصروف');
 });

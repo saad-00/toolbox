@@ -25,9 +25,9 @@ test('both locales have the same keys', () => {
 test('interpolation', () => {
   setLang('ar');
   assert.equal(getLang(), 'ar');
-  assert.equal(t('toast.logged', { amount: '50', cat: 'مصروف' }), 'أُضيف 50 ر.س إلى تم الصرف · مصروف');
+  assert.equal(t('toast.logged', { amount: '50', cat: 'مصروف' }), 'سُجّل 50 ر.س · مصروف');
   setLang('en');
-  assert.equal(t('toast.logged', { amount: '50', cat: 'Food' }), 'Added SAR 50 to spent · Food');
+  assert.equal(t('toast.logged', { amount: '50', cat: 'Food' }), 'Logged SAR 50 · Food');
 });
 test('missing key returns the key', () => {
   assert.equal(t('no.such.key'), 'no.such.key');

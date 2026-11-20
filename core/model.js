@@ -1,5 +1,7 @@
 // State model: categories and transactions. Amounts are integer halalas.
-// Deletes are soft (deleted: true + updatedAt). Clock is overridable for tests.
+// Deletes are soft (deleted: true + updatedAt), so «تراجع» can bring a record back. Clock is overridable for tests.
+import { periodOf, monthStartOf } from './months.js';
+
 let clock = Date.now;
 export function setClock(fn) { clock = fn || Date.now; }
 export function now() { return clock(); }
@@ -78,7 +80,7 @@ export function addTx(state, { catId, amount, date, note }) {
     || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('invalid-tx');
   const id = uid();
   state.tx.push({
-    id, month: date.slice(0, 7), catId, amount, date, note: note ?? '', deleted: false, updatedAt: now(),
+    id, month: periodOf(date, monthStartOf(state)), catId, amount, date, note: note ?? '', deleted: false, updatedAt: now(),
   });
   return id;
 }
@@ -88,4 +90,13 @@ export function deleteTx(state, txId) {
   if (!x) throw new Error('tx-not-found');
   x.deleted = true;
   x.updatedAt = now();
+}
+
+// «تراجع» after a delete: the record comes back with a newer stamp, so it also wins on other devices.
+export function restoreRecord(list, id) {
+  const r = (list || []).find((x) => x.id === id);
+  if (!r) throw new Error('not-found');
+  r.deleted = false;
+  r.updatedAt = now();
+  return r;
 }

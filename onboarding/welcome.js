@@ -6,7 +6,7 @@ import { createState, DEFAULT_CAT_KEYS } from '../core/model.js';
 import { parseAmount } from '../core/money.js';
 import { setIncome, monthOf, todayLocal } from '../core/months.js';
 import { pullRemote } from '../core/sync.js';
-import { toast } from '../core/ui.js';
+import { toast, fieldError } from '../core/ui.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TOTAL = 4;
@@ -134,7 +134,7 @@ ${opts.install && opts.install.available() ? `<button class="btn sec winstall" t
     if (!state) {
       state = createState(DEFAULT_CAT_KEYS.filter((k) => data.checked.has(k)));
       let h = null;
-      try { h = salaryHalalas(); } catch { step = 2; render(); toast(t('err.invalid-amount')); el.querySelector('#wSalary')?.focus(); return; }
+      try { h = salaryHalalas(); } catch { step = 2; render(); const i = el.querySelector('#wSalary'); fieldError(i, t('err.invalid-amount'), i.closest('label')); return; }
       if (h != null) setIncome(state, monthOf(todayLocal()), h);
     }
     busy = true;
@@ -157,7 +157,7 @@ ${opts.install && opts.install.available() ? `<button class="btn sec winstall" t
     if (b.id === 'wNext') {
       collect();
       if (step === 2) {
-        try { salaryHalalas(); } catch { toast(t('err.invalid-amount')); el.querySelector('#wSalary').focus(); return; }
+        try { salaryHalalas(); } catch { const i = el.querySelector('#wSalary'); fieldError(i, t('err.invalid-amount'), i.closest('label')); return; }
       }
       step++; render();
       const h = el.querySelector('.wbody h2');

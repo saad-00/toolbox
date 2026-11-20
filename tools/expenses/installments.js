@@ -1,6 +1,6 @@
 // Installment plans (Tabby/Tamara style). Amounts are integer halalas.
 import { uid, now } from '../../core/model.js';
-import { addMonth, monthOf } from '../../core/months.js';
+import { addMonth, monthOf, periodOf, monthStartOf, daysBetween } from '../../core/months.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -23,22 +23,61 @@ export function paymentAmount(plan, k) {
   return k === plan.n - 1 ? plan.total - base * (plan.n - 1) : base;
 }
 
-export function schedule(plan) {
-  const first = monthOf(plan.start);
-  return Array.from({ length: plan.n }, (_, k) => ({
-    k, month: addMonth(first, k), amount: paymentAmount(plan, k), paid: !!plan.paid[k],
-  }));
+// Date of payment k: the start date's day, k calendar months later (clamped to short months).
+export function paymentDate(plan, k) {
+  const m = addMonth(monthOf(plan.start), k);
+  const last = new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate();
+  return `${m}-${String(Math.min(Number(plan.start.slice(8, 10)), last)).padStart(2, '0')}`;
+}
+
+// Payments by month period (start = the state's month start day; 1 = calendar months).
+export function schedule(plan, start = 1) {
+  return Array.from({ length: plan.n }, (_, k) => {
+    const date = paymentDate(plan, k);
+    return { k, date, month: periodOf(date, start), amount: paymentAmount(plan, k), paid: !!plan.paid[k] };
+  });
 }
 
 export function dueIn(state, month) {
   const out = [];
+  const start = monthStartOf(state);
   for (const plan of state.plans) {
     if (plan.deleted) continue;
-    for (const row of schedule(plan)) {
-      if (row.month === month) out.push({ plan, k: row.k, amount: row.amount, paid: row.paid });
+    for (const row of schedule(plan, start)) {
+      if (row.month === month) out.push({ plan, k: row.k, amount: row.amount, paid: row.paid, date: row.date });
     }
   }
   return out;
+}
+
+// The earliest unpaid payment of any live plan (overdue ones first), with days until it is due
+// (negative = overdue). null when everything is paid.
+export function nextPayment(state, today) {
+  let best = null;
+  for (const plan of state.plans) {
+    if (plan.deleted) continue;
+    for (let k = 0; k < plan.n; k++) {
+      if (plan.paid[k]) continue;
+      const date = paymentDate(plan, k);
+      if (!best || date < best.date) best = { plan, k, date, amount: paymentAmount(plan, k) };
+      break; // later payments of this plan are never earlier
+    }
+  }
+  return best && { ...best, inDays: daysBetween(today, best.date) };
+}
+
+// Unpaid payments due from today on (soonest first), for the home summary.
+export function upcomingPayments(state, today, limit = 2) {
+  const out = [];
+  for (const plan of state.plans) {
+    if (plan.deleted) continue;
+    for (let k = 0; k < plan.n; k++) {
+      if (plan.paid[k]) continue;
+      const date = paymentDate(plan, k);
+      if (date >= today) out.push({ plan, k, date, amount: paymentAmount(plan, k), inDays: daysBetween(today, date) });
+    }
+  }
+  return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).slice(0, limit);
 }
 
 function findPlan(state, planId) {
