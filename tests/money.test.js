@@ -21,8 +21,14 @@ test('formats', () => {
   assert.equal(formatAmount(153020, 'ar'), '1,530.20');
   assert.equal(formatAmount(17175, 'en'), '171.75');
   assert.equal(formatAmount(5, 'en'), '0.05');
-  assert.equal(formatAmount(-15050, 'en'), '-150.50');
+  assert.equal(formatAmount(-15050, 'en'), '\u2066-150.50\u2069');
 });
 test('formats negatives', () => {
-  assert.equal(formatAmount(-10000, 'ar'), '-100');
+  assert.equal(formatAmount(-10000, 'ar'), '\u2066-100\u2069'); // isolated: see below
+});
+
+test('a negative amount is isolated left-to-right, so the minus stays in front inside Arabic text', () => {
+  assert.equal(formatAmount(-918490, 'ar'), '⁦-9,184.90⁩');
+  assert.equal(formatAmount(-100000, 'en'), '⁦-1,000⁩');
+  assert.equal(formatAmount(0, 'ar'), '0'); // zero and positives are unchanged
 });

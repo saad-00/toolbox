@@ -1,6 +1,6 @@
 // Toolbox service worker: precache the shell, serve same-origin GETs cache-first.
 // Bump VERSION whenever shell files change so clients pick up the new files.
-const VERSION = 'toolbox-v13';
+const VERSION = 'toolbox-v14';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'tools.json',
   'icons/icon-192.png', 'icons/icon-512.png',

@@ -50,20 +50,30 @@ export function dueIn(state, month) {
   return out;
 }
 
-// The earliest unpaid payment of any live plan (overdue ones first), with days until it is due
-// (negative = overdue). null when everything is paid.
+// The next unpaid payment due today or later, with days until it is due. null when none.
+// Unpaid payments before today are not «next»: see overduePayments.
 export function nextPayment(state, today) {
-  let best = null;
+  return upcomingPayments(state, today, 1)[0] || null;
+}
+
+// Unpaid payments dated before today (e.g. a plan added after it started, its past payments never ticked).
+export function overduePayments(state, today) {
+  const out = [];
   for (const plan of state.plans) {
     if (plan.deleted) continue;
     for (let k = 0; k < plan.n; k++) {
-      if (plan.paid[k]) continue;
       const date = paymentDate(plan, k);
-      if (!best || date < best.date) best = { plan, k, date, amount: paymentAmount(plan, k) };
-      break; // later payments of this plan are never earlier
+      if (!plan.paid[k] && date < today) out.push({ plan, k, date });
     }
   }
-  return best && { ...best, inDays: daysBetween(today, best.date) };
+  return out;
+}
+
+// Ticks every overdue payment as paid; returns which ones (plan id + k), so the change can be undone.
+export function markPaidBefore(state, today) {
+  const done = overduePayments(state, today).map(({ plan, k }) => ({ id: plan.id, k }));
+  for (const { id, k } of done) setPaid(state, id, k, true);
+  return done;
 }
 
 // Unpaid payments due from today on (soonest first), for the home summary.

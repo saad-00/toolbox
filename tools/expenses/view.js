@@ -10,7 +10,7 @@ import {
   addMonth, todayLocal, ensureMonth, setIncome, setBudget, periodOf, periodBounds, periodProgress,
   monthStartOf, setMonthStart, txMonth, daysBetween,
 } from '../../core/months.js';
-import { addPlan, schedule, dueIn, setPaid, deletePlan, remaining, paymentAmount, nextPayment } from './installments.js';
+import { addPlan, schedule, dueIn, setPaid, deletePlan, remaining, paymentAmount, nextPayment, overduePayments, markPaidBefore } from './installments.js';
 import { monthSummary, projectedState } from './calc.js';
 import { addFixed, setFixedActive, deleteFixed, liveFixed, applyFixed } from './fixed.js';
 import { history as monthHistory, historyStats, exportCsv } from './reports.js';
@@ -106,10 +106,7 @@ export function mountExpenses(el, ctx) {
     return s;
   }
   const daysText = (n) => (n === 1 ? t('days.last') : n === 2 ? t('days.two') : t(n <= 10 ? 'days.few' : 'days.many', { n }));
-  const soonText = (n) => {
-    if (n === 0) return t('soon.today');
-    return n > 0 ? t(countKey('soon', n), { n }) : t(countKey('late', -n), { n: -n });
-  };
+  const soonText = (n) => (n === 0 ? t('soon.today') : t(countKey('soon', n), { n }));
   const provLabel = (name) => { const k = provKey(name); return k ? t(`prov.${k}`) : name; };
   const provClass = (name) => provKey(name) || '';
   const errMsg = (e, vars) => {
@@ -326,6 +323,7 @@ export function mountExpenses(el, ctx) {
     const daily = $('#exDaily');
     const prog = periodProgress(cur, todayLocal(), start());
     daily.hidden = !(sum.income > 0 && prog);
+    $('#exHero').classList.toggle('neg', sum.remainingNow < 0);
     if (!daily.hidden) {
       const rem = sum.remainingNow;
       daily.classList.toggle('bad', rem <= 0);
@@ -335,7 +333,7 @@ export function mountExpenses(el, ctx) {
         $('#exDailySub').textContent = t('sum.dailyUntil', { date: dayMonth(periodBounds(cur, start()).to), left: daysText(prog.left) });
       } else {
         $('#exDailyAmt').textContent = '';
-        $('#exDailyLbl').textContent = t('sum.dailyNone');
+        $('#exDailyLbl').textContent = rem < 0 ? t('sum.overIncome', { amount: money(-rem) }) : t('sum.dailyNone');
         $('#exDailySub').textContent = '';
       }
     }
@@ -378,7 +376,10 @@ export function mountExpenses(el, ctx) {
         : st === 'full' ? t('sum.full') : t('sum.left', { left: money(b - s), budget: money(b) });
       return `<div class="cat ${st}"><div class="t"><span>${esc(label)}</span><span class="st">${esc(txt)}</span></div>`
         + `<div class="bar"><i class="${st === 'over' || st === 'near' ? st : ''}" style="width:${w}%"></i></div></div>`;
-    }).join('') : `<p class="note">${esc(t('sum.empty'))}</p>`;
+    }).join('') : liveCats(state).length
+      // categories exist but none has a budget or spending yet (a new account)
+      ? `<p class="note">${esc(t('sum.noBudget'))}</p><button type="button" class="btn sec ex-small" data-tab="bud">${esc(t('bud.edit'))}</button>`
+      : `<p class="note">${esc(t('sum.empty'))}</p>`;
     $('#exLegend').innerHTML = (near ? `<span><i class="near"></i>${esc(t('sum.near'))}</span>` : '')
       + (over ? `<span><i class="over"></i>${esc(t('sum.overL'))}</span>` : '');
   }
@@ -415,7 +416,7 @@ export function mountExpenses(el, ctx) {
 
   function renderTxList() {
     const { live, ins } = txData;
-    if (!live.length && !ins.length) { $('#exTxs').innerHTML = `<p class="note">${esc(t('tx.empty'))}</p>`; return; }
+    if (!live.length && !ins.length) { $('#exTxs').innerHTML = `<p class="note">${esc(t(wide.matches ? 'tx.emptyPc' : 'tx.empty'))}</p>`; return; }
     const q = txQuery.trim().toLowerCase();
     const label = (x) => { const c = getCategory(state, x.catId); return c ? catLabel(c, t) : ''; };
     const match = (...texts) => !q || texts.some((s) => String(s).toLowerCase().includes(q));
@@ -456,14 +457,16 @@ export function mountExpenses(el, ctx) {
 
   function renderNext() {
     const n = nextPayment(state, todayLocal());
-    $('#exNextCard').hidden = !n;
-    if (!n) return;
+    const late = overduePayments(state, todayLocal()).length;
+    $('#exNextCard').hidden = !n && !late;
+    const lateHtml = late ? `<div class="nx-late"><span>${esc(t(countKey('overdue', late), { n: late }))}</span><button type="button" class="btn sec ex-small" data-latepaid>${esc(t('ins.markLate'))}</button></div>` : '';
+    if (!n) { $('#exNext').innerHTML = lateHtml; return; }
     const d = new Date(Number(n.date.slice(0, 4)), Number(n.date.slice(5, 7)) - 1, Number(n.date.slice(8, 10)));
     const mon = new Intl.DateTimeFormat(loc(), { month: 'long' }).format(d);
-    $('#exNext').innerHTML = `<div class="nx ${n.inDays < 0 ? 'late' : ''}"><div class="nx-d"><b>${d.getDate()}</b><small>${esc(mon)}</small></div>`
+    $('#exNext').innerHTML = `<div class="nx"><div class="nx-d"><b>${d.getDate()}</b><small>${esc(mon)}</small></div>`
       + `<div class="m">${esc(n.plan.item)} <span class="prov ${provClass(n.plan.provider)}">${esc(provLabel(n.plan.provider))}</span>`
       + `<small>${esc(t('ins.payment', { k: n.k + 1, n: n.plan.n }))} · ${esc(soonText(n.inDays))}</small></div><b class="nx-a">${esc(money(n.amount))}</b></div>`
-      + `<label class="due nx-pay"><input type="checkbox" data-pay="${esc(n.plan.id)}:${n.k}"><span class="m">${esc(t('ins.markPaid'))}</span></label>`;
+      + `<label class="due nx-pay"><input type="checkbox" data-pay="${esc(n.plan.id)}:${n.k}"><span class="m">${esc(t('ins.markPaid'))}</span></label>${lateHtml}`;
   }
 
   function renderIns(due) {
@@ -665,6 +668,12 @@ export function mountExpenses(el, ctx) {
       await mutate(() => { deleteTx(state, id); return t('toast.txDeleted'); }, { undo: () => restoreRecord(state.tx, id) });
       return;
     }
+    if (b.hasAttribute('data-latepaid')) {
+      let done = [];
+      await mutate(() => { done = markPaidBefore(state, todayLocal()); return t('toast.latePaid', { n: done.length }); },
+        { undo: () => { for (const { id, k } of done) setPaid(state, id, k, false); } });
+      return;
+    }
     if (b.dataset.pdel) {
       const id = b.dataset.pdel;
       await mutate(() => { deletePlan(state, id); return t('toast.planDeleted'); }, { undo: () => restoreRecord(state.plans, id) });
@@ -806,7 +815,7 @@ export function mountExpenses(el, ctx) {
     if (!e.detail || e.detail.view !== 'expenses') { closePicker(false); return; }
     const m = monthFromHash();
     if (m && m !== cur) { cur = m; render(); } else syncHash();
-    centerStrip();
+    requestAnimationFrame(centerStrip); // after the shell is visible: a hidden strip has no width to centre in
   });
 
   // ---------- sheets ----------
