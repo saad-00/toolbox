@@ -238,11 +238,11 @@ test.describe('Arabic', () => {
     await seed(page);
     await page.locator('.tabs button[data-tab=bud]').click();
     const row = page.locator('#exBuds .brow', { hasText: 'مصروف' });
-    await row.locator('button').click();
+    await row.locator('[data-cdel]').click();
     await expect(page.locator('#toast')).toHaveText('لا يمكن حذف «مصروف» لأن فيه حركات مسجلة');
     expect((await stored(page)).cats.find((c) => c.name === 'مصروف').deleted).toBe(false);
     // a category without transactions can be deleted (soft)
-    await page.locator('#exBuds .brow', { hasText: 'قرض' }).locator('button').click();
+    await page.locator('#exBuds .brow', { hasText: 'قرض' }).locator('[data-cdel]').click();
     await expect(page.locator('#exBuds .brow')).toHaveCount(5);
     expect((await stored(page)).cats.find((c) => c.name === 'قرض').deleted).toBe(true);
     // add a category
@@ -331,7 +331,7 @@ test.describe('Arabic', () => {
     await seed(page);
     await page.goto('./#home');
     await expect(page.locator('#view-home')).toBeVisible();
-    await expect(page.locator('#fab')).toBeHidden();
+    await expect(page.locator('#bNav #fab')).toBeVisible(); // a phone: + sits in the bottom bar on every page
     await expect(page.locator('#home-sub-expenses')).toContainText('1,730.25');
     await page.locator('.tool[data-tool=expenses] .quick').click();
     await expect(page).toHaveURL(/#expenses$/);
@@ -351,7 +351,7 @@ test.describe('PC board («لوحة واحدة»)', () => {
     await expect(page.locator('#exTxs .tx')).toHaveCount(7);
     // hero and categories share the first row; transactions and installments the second
     const top = (sel) => page.locator(sel).evaluate((e) => Math.round(e.getBoundingClientRect().top));
-    expect(await top('#exHero')).toBe(await top('#t-sum > .card:not(.hero)'));
+    expect(await top('#exHero')).toBe(await top('#t-sum > .ex-cats'));
     expect(await top('#t-tx')).toBe(await top('#t-ins'));
     expect(await top('#t-tx')).toBeGreaterThan(await top('#exHero'));
     // only the chosen month shows in the header switcher; the arrows still move it

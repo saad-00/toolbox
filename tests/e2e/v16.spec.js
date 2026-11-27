@@ -120,9 +120,9 @@ test.describe('PC', () => {
     await page.locator('#txQ').fill('لا شيء');
     await expect(page.locator('#exTxs')).toHaveText('لا توجد حركات تطابق البحث.');
     await page.locator('#txQ').fill('');
-    await page.locator('#txF button', { hasText: 'نت الجوال' }).click();
+    await page.locator('#txF').selectOption({ label: 'نت الجوال' }); // a dropdown since v1.8
     await expect(page.locator('#exTxs .tx')).toHaveCount(1);
-    await page.locator('#txF button', { hasText: 'الأقساط' }).click();
+    await page.locator('#txF').selectOption('ins');
     await expect(page.locator('#exTxs .tx')).toHaveCount(2);
     await expect(page.locator('#exTxs .tx-day')).toHaveText([/أقساط مدفوعة هذا الشهر/]);
   });
@@ -229,21 +229,18 @@ test.describe('PC', () => {
 
   test('payday month: «نوفمبر» becomes 27 Oct – 26 Nov, synced in the state, and re-files entries', async ({ page }) => {
     await seed(page);
-    await page.locator('#exRepBtn').click();
+    await page.locator('#exBudBtn').click(); // the month start lives in «الميزانية» since v1.8
     await expect(page.locator('#msDayW')).toBeHidden();
     await page.locator('[data-ms=payday]').click();
     await expect(page.locator('#toast')).toHaveText('صار الشهر يبدأ يوم 27');
     await expect(page.locator('#msDay')).toHaveValue('27');
     await expect(page.locator('#msRange')).toHaveText('شهر «نوفمبر» من 27 أكتوبر إلى 26 نوفمبر.');
     expect((await stored(page)).prefs.monthStart).toBe(27);
-    // day 10: today (15 Nov) now belongs to the December period; the 5 Nov entries stay in November
-    await page.locator('#msDay').fill('10');
-    await page.locator('#msDay').press('Enter');
+    // day 10: a period is named after the month holding most of its days → «نوفمبر» = 10 Nov – 9 Dec
+    await page.locator('#msDay').selectOption('10');
     await expect(page.locator('#toast')).toHaveText('صار الشهر يبدأ يوم 10');
-    await expect(page.locator('#mscroll button.on')).toHaveAttribute('data-m', '2026-12');
-    await page.locator('#msDay').fill('30');
-    await page.locator('#msDay').press('Enter');
-    await expect(page.locator('#msDay-err')).toHaveText('اختر يوماً من 1 إلى 28');
+    await expect(page.locator('#msRange')).toHaveText('شهر «نوفمبر» من 10 نوفمبر إلى 9 ديسمبر.');
+    await expect(page.locator('#mscroll button.on')).toHaveAttribute('data-m', '2026-11');
     await page.locator('[data-ms=first]').click();
     await expect(page.locator('#toast')).toHaveText('رجع الشهر يبدأ من أوله');
     await expect(page.locator('#mscroll button.on')).toHaveAttribute('data-m', '2026-11');
@@ -275,11 +272,11 @@ test.describe('PC', () => {
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test('Reports is a fifth tab; the PC-only pieces stay hidden; the tabs fit', async ({ page }) => {
+  test('Reports opens from the bottom bar; the PC-only pieces stay hidden; the tabs fit', async ({ page }) => {
     await seed(page);
     await expect(page.locator('#homeSum')).toBeHidden();
     await expect(page.locator('#exDaily')).toBeVisible(); // the daily allowance helps on a phone too
-    await page.locator('.tabs button[data-tab=rep]').click();
+    await page.locator('#bNav [data-rep]').click(); // in the bottom bar since v1.8
     await expect(page.locator('#t-rep')).toBeVisible();
     await expect(page.locator('#t-sum')).toBeHidden();
     const fits = await page.locator('.tabs').evaluate((e) => e.scrollWidth <= e.clientWidth + 1);
@@ -291,7 +288,7 @@ test.describe('phone', () => {
 
   test('English tab labels never overlap', async ({ page }) => {
     await seed(page, { lang: 'en' });
-    const boxes = await page.locator('.tabs button').evaluateAll((els) => els.map((e) => {
+    const boxes = await page.locator('.tabs button:visible').evaluateAll((els) => els.map((e) => {
       const r = e.getBoundingClientRect(); return [r.left, r.right, e.scrollWidth <= e.clientWidth + 1];
     }));
     for (const [, , fits] of boxes) expect(fits).toBe(true);

@@ -5,15 +5,15 @@
 // ctx.save(state), then a re-render. Deletes offer «تراجع».
 import { formatAmount, parseAmount } from '../../core/money.js';
 import { monthName } from '../../core/i18n.js';
-import { addCategory, deleteCategory, addTx, deleteTx, liveCats, getCategory, catLabel, restoreRecord } from '../../core/model.js';
+import { addCategory, deleteCategory, addTx, deleteTx, liveCats, getCategory, catLabel, restoreRecord, suggestSplit, setCategoryColor, CAT_COLORS } from '../../core/model.js';
 import {
   addMonth, todayLocal, ensureMonth, setIncome, setBudget, periodOf, periodBounds, periodProgress,
-  monthStartOf, setMonthStart, txMonth, daysBetween,
+  monthStartOf, setMonthStart, txMonth, daysBetween, startOk,
 } from '../../core/months.js';
 import { addPlan, schedule, dueIn, setPaid, deletePlan, remaining, paymentAmount, nextPayment, overduePayments, markPaidBefore } from './installments.js';
 import { monthSummary, projectedState } from './calc.js';
 import { addFixed, setFixedActive, deleteFixed, liveFixed, applyFixed } from './fixed.js';
-import { history as monthHistory, historyStats, exportCsv } from './reports.js';
+import { history as monthHistory, historyStats, exportCsv, categoryAverages } from './reports.js';
 import { toast, openSheet, closeSheet, fieldError, clearFieldError } from '../../core/ui.js';
 
 export { projectedState };
@@ -78,6 +78,11 @@ export function mountExpenses(el, ctx) {
   let prov = 'tabby';
   let txFilter = 'all'; // 'all' | category id | 'ins'
   let txQuery = '';
+  let colorFor = null; // budget: the category whose colour picker is open
+  let txAll = false; // «عرض كل الحركات»: else the board shows the latest TX_LIMIT
+  const TX_LIMIT = 10;
+  const SETUP_LATER = 'toolbox.setupLater'; // «أكمل لاحقاً» on this device (a convenience, not data)
+  const setupLater = () => { try { return localStorage.getItem(SETUP_LATER) === '1'; } catch { return false; } };
   let repTable = false;
   let pickYear = null; // month picker open → the year it shows
   const expanded = new Set();
@@ -162,6 +167,7 @@ export function mountExpenses(el, ctx) {
   <div class="ex-meter" id="exMeterW"><div class="bar"><i id="exMeter"></i></div><span class="ex-now" id="exNow"></span></div>
   <p class="ex-pace" id="exPace"></p>
   <div class="ex-daily" id="exDaily" hidden>${icon('cal')}<div><b id="exDailyAmt"></b> <span id="exDailyLbl"></span><small id="exDailySub"></small></div></div>
+  <div class="ex-top" id="exTop" hidden></div>
   <div class="figs">
    <div><small>${esc(t('sum.income'))}</small><b id="fInc"></b></div>
    <div><small>${esc(t('sum.spent'))}</small><b id="fSpent"></b></div>
@@ -169,7 +175,8 @@ export function mountExpenses(el, ctx) {
    <div><small>${esc(t('sum.remainingActual'))}</small><b id="fAct"></b></div>
   </div>
  </div>
- <div class="card"><div class="row ex-card-head"><h2>${esc(t('sum.cats'))}</h2><span class="sp"></span><span class="ex-legend" id="exLegend"></span></div><div id="exCats"></div></div>
+ <div class="card ex-setup" id="exSetup" hidden></div>
+ <div class="card ex-cats"><div class="row ex-card-head"><h2>${esc(t('sum.cats'))}</h2><span class="sp"></span><span class="ex-legend" id="exLegend"></span></div><div id="exCats"></div></div>
 </div>
 <div id="exInfo" class="pop gl" popover><h2>${esc(t('sum.infoTitle'))}</h2><dl>
  <dt>${esc(t('sum.remainingNow'))}</dt><dd>${esc(t('sum.infoNow'))}</dd>
@@ -179,8 +186,9 @@ export function mountExpenses(el, ctx) {
  <button type="button" class="btn sec" popovertarget="exInfo" popovertargetaction="hide">${esc(t('sheet.close'))}</button></div>
 <div id="t-tx" class="card" role="tabpanel" aria-labelledby="tab-tx">
  <div class="row ex-card-head"><h2>${esc(t('tx.title'))}</h2><span class="sp"></span><label class="ex-search">${icon('search')}<input type="search" id="txQ" placeholder="${esc(t('tx.searchPh'))}" aria-label="${esc(t('tx.search'))}" autocomplete="off"></label></div>
- <div class="chips ex-tfilter" id="txF" role="group" aria-label="${esc(t('tx.filter'))}"></div>
+ <select class="ex-tfilter" id="txF" aria-label="${esc(t('tx.filter'))}"></select>
  <div id="exTxs"></div>
+ <button type="button" class="btn sec ex-more" id="txMore" hidden></button>
 </div>
 <div id="t-ins" class="grid2" role="tabpanel" aria-labelledby="tab-ins">
  <div class="card ex-next" id="exNextCard" hidden><h2>${esc(t('ins.next'))}</h2><div id="exNext"></div></div>
@@ -189,11 +197,17 @@ export function mountExpenses(el, ctx) {
 </div>
 <div id="t-bud" class="card" role="tabpanel" aria-labelledby="tab-bud">
  <h2>${esc(t('bud.title'))}</h2>
+ <div class="ex-suggest" id="budSuggest" hidden>${icon('chart')}<div><b>${esc(t('bud.suggestTitle'))}</b><small id="budSuggestSub"></small></div><button type="button" class="btn ex-small" id="useAll">${esc(t('bud.useAll'))}</button></div>
  <label class="brow"><span><b>${esc(t('bud.income'))}</b></span><input type="text" inputmode="decimal" id="incIn" autocomplete="off"></label>
  <div id="exBuds"></div>
+ <p class="ex-budtotal" id="budTotal"></p>
  <div class="addcat"><input type="text" id="catName" placeholder="${esc(t('bud.newCat'))}" aria-label="${esc(t('bud.newCat'))}" autocomplete="off"><button class="btn" type="button" id="addCat">${esc(t('bud.addCat'))}</button></div>
  <p class="note">${esc(t('bud.note'))}</p>
  <div class="row ex-copy"><button class="btn sec" type="button" id="copyPrev">${esc(t('bud.copyPrev'))}</button></div>
+ <div class="ex-mscard" id="msCard"><h3>${esc(t('ms.title'))}</h3><p class="note ex-sub">${esc(t('ms.sub'))}</p>
+  <div class="seg" role="radiogroup" aria-label="${esc(t('ms.title'))}"><button type="button" role="radio" data-ms="first">${esc(t('ms.first'))}</button><button type="button" role="radio" data-ms="payday">${esc(t('ms.payday'))}</button></div>
+  <label class="brow ex-msday" id="msDayW"><span>${esc(t('ms.day'))}</span><select id="msDay">${Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('')}<option value="31">${esc(t('wel.payLast'))}</option></select></label>
+  <p class="ex-msrange" id="msRange"></p></div>
 </div>
 <div id="t-rep" class="ex-rep" role="tabpanel" aria-labelledby="tab-rep">
  <div class="row ex-rep-head"><h2>${esc(t('tab.reports'))}</h2><span class="sp"></span><button class="btn sec ex-icon-btn" type="button" id="exExport">${icon('dl')}<span>${esc(t('rep.export'))}</span></button></div>
@@ -201,10 +215,6 @@ export function mountExpenses(el, ctx) {
   <div class="card ex-chart-card"><div class="row ex-card-head"><h2>${esc(t('rep.chart'))}</h2><span class="sp"></span><button class="ex-link" type="button" id="repView" aria-pressed="false"></button></div><p class="note ex-rep-stats" id="repStats"></p><div id="repChart"></div></div>
   <div class="ex-rep-side">
    <div class="card" id="fxCard"><div class="row ex-plans-head"><h2>${esc(t('fx.title'))}</h2><span class="sp"></span><button class="btn ex-small" type="button" id="fxAdd">${esc(t('fx.add'))}</button></div><p class="note ex-sub">${esc(t('fx.sub'))}</p><div id="fxList"></div></div>
-   <div class="card" id="msCard"><h2>${esc(t('ms.title'))}</h2><p class="note ex-sub">${esc(t('ms.sub'))}</p>
-    <div class="seg" role="radiogroup" aria-label="${esc(t('ms.title'))}"><button type="button" role="radio" data-ms="first">${esc(t('ms.first'))}</button><button type="button" role="radio" data-ms="payday">${esc(t('ms.payday'))}</button></div>
-    <label class="brow ex-msday" id="msDayW"><span>${esc(t('ms.day'))}</span><input type="text" inputmode="numeric" id="msDay" autocomplete="off"></label>
-    <p class="ex-msrange" id="msRange"></p></div>
   </div>
  </div>
 </div>
@@ -247,7 +257,12 @@ export function mountExpenses(el, ctx) {
 <label class="fld" id="pNW">${esc(t('plan.months'))}<input type="text" inputmode="numeric" id="pN" value="4" autocomplete="off"></label></div>
 <div class="chips ex-nchips" id="nChips"></div>
 <div class="fld">${esc(t('plan.start'))}${dfield('pStart', t('plan.start'))}</div>
-<label class="due ex-first"><input type="checkbox" id="pFirst" checked><span class="m">${esc(t('plan.firstPaid'))}</span></label>
+<label class="due ex-first" id="pFirstW"><input type="checkbox" id="pFirst" checked><span class="m">${esc(t('plan.firstPaid'))}</span></label>
+<fieldset class="ex-past" id="pPast" hidden><legend id="pPastL"></legend><p class="note" id="pPastQ"></p>
+<label class="ex-popt"><input type="radio" name="pPast" value="all" checked><span><b>${esc(t('plan.pastAll'))}</b><small id="pPastAll"></small></span></label>
+<label class="ex-popt"><input type="radio" name="pPast" value="some"><span><b>${esc(t('plan.pastSome'))}</b><small>${esc(t('plan.pastSomeSub'))}</small>
+<span class="ex-stepper" id="pSome" hidden><button type="button" class="icon-btn" id="pPaidLess" aria-label="${esc(t('plan.less'))}">−</button><b id="pPaidN" aria-live="polite"></b><button type="button" class="icon-btn" id="pPaidMore" aria-label="${esc(t('plan.more'))}">+</button><small id="pSomeTxt"></small></span></span></label>
+</fieldset>
 <p class="note ex-prev" id="pPrev" aria-live="polite"></p>
 <button class="btn ex-wide" type="submit">${esc(t('sheet.plan.submit'))}</button>`;
     fxSheet.setAttribute('aria-label', t('sheet.fx.title'));
@@ -362,11 +377,13 @@ export function mountExpenses(el, ctx) {
     $('#fBud').textContent = money(sum.budgetTotal);
     $('#fAct').textContent = money(sum.remainingActual);
     renderMeter(sum);
-    const rows = sum.rows.map((r) => ({ label: catLabel(getCategory(view, r.catId), t), s: r.spent, b: r.budget }))
+    renderSetup(view, sum);
+    renderTop(view, sum);
+    const rows = sum.rows.map((r) => { const c = getCategory(view, r.catId); return { label: catLabel(c, t), s: r.spent, b: r.budget, color: c.color }; })
       .concat(providerRows(sum.providers))
       .filter((r) => r.s || r.b);
     let near = 0; let over = 0;
-    $('#exCats').innerHTML = rows.length ? rows.map(({ label, s, b }) => {
+    $('#exCats').innerHTML = rows.length ? rows.map(({ label, s, b, color }) => {
       // over: spent more than planned; full: exactly used up; near: 90 % or more used.
       const st = s > b ? 'over' : b && s === b ? 'full' : b && s / b >= 0.9 ? 'near' : '';
       if (st === 'over') over++;
@@ -374,7 +391,7 @@ export function mountExpenses(el, ctx) {
       const w = b ? Math.min(100, (s / b) * 100) : 100;
       const txt = st === 'over' ? t('sum.overBy', { amount: money(s - b) })
         : st === 'full' ? t('sum.full') : t('sum.left', { left: money(b - s), budget: money(b) });
-      return `<div class="cat ${st}"><div class="t"><span>${esc(label)}</span><span class="st">${esc(txt)}</span></div>`
+      return `<div class="cat ${st}"><div class="t"><span>${color ? `<i class="cdot c-${color}" aria-hidden="true"></i>` : ''}${esc(label)}</span><span class="st">${esc(txt)}</span></div>`
         + `<div class="bar"><i class="${st === 'over' || st === 'near' ? st : ''}" style="width:${w}%"></i></div></div>`;
     }).join('') : liveCats(state).length
       // categories exist but none has a budget or spending yet (a new account)
@@ -382,6 +399,42 @@ export function mountExpenses(el, ctx) {
       : `<p class="note">${esc(t('sum.empty'))}</p>`;
     $('#exLegend').innerHTML = (near ? `<span><i class="near"></i>${esc(t('sum.near'))}</span>` : '')
       + (over ? `<span><i class="over"></i>${esc(t('sum.overL'))}</span>` : '');
+  }
+
+  // «ابدأ في 3 خطوات»: a new account's next steps, until income, budgets and a first spend exist.
+  function renderSetup(view, sum) {
+    const card = $('#exSetup');
+    const done = [sum.income > 0, sum.rows.some((r) => r.budget > 0), state.tx.some((x) => !x.deleted)];
+    const n = done.filter(Boolean).length;
+    const show = n < 3 && !setupLater() && cur === nowMonth();
+    card.hidden = !show;
+    $('#t-sum').classList.toggle('setup', show);
+    if (!show) return;
+    const next = done.indexOf(false);
+    const cats = liveCats(state).length;
+    const step = (i, title, sub, actions) => {
+      const st = done[i] ? 'done' : i === next ? 'now' : '';
+      return `<div class="su-step ${st}"><span class="su-n" aria-hidden="true">${done[i] ? icon('check') : i + 1}</span><div><b>${esc(title)}</b><small>${esc(sub)}</small>${i === next && actions ? `<div class="row su-act">${actions}</div>` : ''}</div></div>`;
+    };
+    const btn = (kind, key, primary) => `<button type="button" class="btn ${primary ? '' : 'sec '}ex-small" data-setup="${kind}">${esc(t(key))}</button>`;
+    card.innerHTML = `<div class="row ex-card-head"><h2>${esc(t('setup.title'))}</h2><span class="sp"></span><span class="su-prog">${esc(t('setup.progress', { n }))}</span></div>`
+      + `<p class="note ex-sub">${esc(t('setup.lead'))}</p><div class="bar su-bar"><i style="width:${(n / 3) * 100}%"></i></div>`
+      + step(0, t('setup.income'), done[0] ? t('setup.incomeDone', { amount: money(sum.income) }) : t('setup.incomeSub'), btn('income', 'setup.incomeBtn', true))
+      + step(1, t('setup.budget'), done[1] ? t('setup.budgetDone') : t('setup.budgetSub', { n: cats }), (sum.income > 0 ? btn('split', 'setup.split', true) : '') + btn('own', 'setup.own', sum.income <= 0))
+      + step(2, t('setup.log'), t(wide.matches ? 'setup.logSub' : 'setup.logSubPhone'), btn('log', 'sheet.log.title', true))
+      + `<button type="button" class="ex-link su-later" data-setup="later">${esc(t('setup.later'))}</button>`;
+  }
+
+  // Overspent: the three categories furthest over their budget, and a way to the budget.
+  function renderTop(view, sum) {
+    const box = $('#exTop');
+    const over = sum.rows.filter((r) => r.spent > r.budget).sort((a, b) => (b.spent - b.budget) - (a.spent - a.budget)).slice(0, 3);
+    box.hidden = !(sum.remainingNow < 0 && over.length);
+    if (box.hidden) return;
+    box.innerHTML = `<h3>${esc(t('sum.top'))}</h3>${over.map((r) => {
+      const c = getCategory(view, r.catId);
+      return `<div class="top-row"><span>${esc(catLabel(c, t))}</span><b>\u2066+${esc(money(r.spent - r.budget))}\u2069</b></div>`; // LRI…PDI: keeps the + in front in RTL
+    }).join('')}<button type="button" class="btn ex-small" data-tab="bud">${esc(t('sum.review'))}</button>`;
   }
 
   // Merge provider rows that name the same known provider (canonical 'tabby' and legacy «تابي»).
@@ -409,7 +462,7 @@ export function mountExpenses(el, ctx) {
     if (ins.length) opts.push(['ins', t('tx.ins')]);
     if (!opts.some(([k]) => k === txFilter)) txFilter = 'all';
     $('#txF').hidden = opts.length < 3;
-    $('#txF').innerHTML = opts.map(([k, label]) => `<button type="button" data-tf="${esc(k)}" class="${k === txFilter ? 'on' : ''}" aria-pressed="${k === txFilter}">${esc(label)}</button>`).join('');
+    $('#txF').innerHTML = opts.map(([k, label]) => `<option value="${esc(k)}"${k === txFilter ? ' selected' : ''}>${esc(k === 'all' ? t('tx.allN', { n: opts.length - 1 }) : label)}</option>`).join('');
     $('#txQ').closest('.ex-search').hidden = live.length + ins.length < 2;
     renderTxList();
   }
@@ -420,9 +473,16 @@ export function mountExpenses(el, ctx) {
     const q = txQuery.trim().toLowerCase();
     const label = (x) => { const c = getCategory(state, x.catId); return c ? catLabel(c, t) : ''; };
     const match = (...texts) => !q || texts.some((s) => String(s).toLowerCase().includes(q));
-    const rows = txFilter === 'ins' ? [] : live.filter((x) => (txFilter === 'all' || x.catId === txFilter) && match(label(x), x.note));
-    const insRows = txFilter === 'all' || txFilter === 'ins'
+    let rows = txFilter === 'ins' ? [] : live.filter((x) => (txFilter === 'all' || x.catId === txFilter) && match(label(x), x.note));
+    let insRows = txFilter === 'all' || txFilter === 'ins'
       ? ins.filter((d) => match(d.plan.item, provLabel(d.plan.provider), t('sum.provider', { provider: provLabel(d.plan.provider) }))) : [];
+    // A long month shows its latest TX_LIMIT; a search or a filter always shows every match.
+    const count = rows.length + insRows.length;
+    const limited = !q && txFilter === 'all' && !txAll && count > TX_LIMIT;
+    const more = $('#txMore');
+    more.hidden = !(count > TX_LIMIT && !q && txFilter === 'all');
+    more.textContent = txAll ? t('tx.less') : t('tx.more', { n: count });
+    if (limited) { insRows = insRows.slice(0, Math.max(0, TX_LIMIT - rows.length)); rows = rows.slice(0, TX_LIMIT); }
     const out = [];
     let day = null;
     for (let i = 0; i < rows.length; i++) {
@@ -432,7 +492,8 @@ export function mountExpenses(el, ctx) {
         const total = rows.filter((r) => r.date === day).reduce((a, r) => a + r.amount, 0);
         out.push(`<div class="tx-day"><b>${esc(dateLabel(day))}</b><span>${esc(money(total))} ${esc(t('currency'))}</span></div>`);
       }
-      out.push(`<div class="tx"><span class="ic">${icon(x.fixed ? 'repeat' : 'tag')}</span><div class="m">${esc(label(x))}${x.note ? `<small>${esc(x.note)}</small>` : ''}</div>`
+      const cc = getCategory(state, x.catId)?.color;
+      out.push(`<div class="tx"><span class="ic${cc ? ` cc c-${cc}` : ''}">${icon(x.fixed ? 'repeat' : 'tag')}</span><div class="m">${esc(label(x))}${x.note ? `<small>${esc(x.note)}</small>` : ''}</div>`
         + `<span class="a">${esc(money(x.amount))}</span><button type="button" class="icon-btn" data-del="${esc(x.id)}" aria-label="${esc(t('tx.delete'))}">${icon('trash')}</button></div>`);
     }
     if (insRows.length) {
@@ -490,15 +551,38 @@ export function mountExpenses(el, ctx) {
     }).join('') : `<p class="note">${esc(t('ins.noPlans'))}</p>`;
   }
 
+  // A suggestion rounds the average to whole riyals.
+  const suggestion = (avg, id) => Math.round((avg.by[id] || 0) / 100) * 100;
+
   function renderBud(view) {
     const rec = view.months[cur] || { income: 0, budget: {} };
+    const avg = categoryAverages(state, cur);
     $('#incIn').value = plain(rec.income);
     $('#incIn').setAttribute('aria-label', t('bud.income'));
+    $('#budSuggest').hidden = !avg.months;
+    $('#budSuggestSub').textContent = t(avg.months === 1 ? 'bud.suggestSub1' : 'bud.suggestSub', { n: avg.months });
     $('#exBuds').innerHTML = liveCats(state).map((c) => {
       const label = catLabel(c, t);
-      return `<div class="brow"><span>${esc(label)}</span><input type="text" inputmode="decimal" autocomplete="off" id="bud-${esc(c.id)}" data-b="${esc(c.id)}" value="${esc(plain(rec.budget[c.id] || 0))}" aria-label="${esc(t('bud.budgetFor', { cat: label }))}">`
-        + `<button type="button" class="icon-btn" data-cdel="${esc(c.id)}" aria-label="${esc(t('bud.deleteCat', { cat: label }))}">${icon('trash')}</button></div>`;
+      const sug = suggestion(avg, c.id);
+      const avgHtml = !avg.months ? '' : `<span class="b-avg">${esc(sug ? t('bud.avg', { amount: money(sug) }) : t('bud.avgNone'))}`
+        + `${sug && sug !== (rec.budget[c.id] || 0) ? `<button type="button" class="ex-link" data-use="${esc(c.id)}" aria-label="${esc(t('bud.useFor', { cat: label }))}">${esc(t('bud.use'))}</button>` : ''}</span>`;
+      const picker = colorFor !== c.id ? '' : `<div class="b-colors" id="colorPick" role="group" aria-label="${esc(t('bud.colorTitle', { cat: label }))}"><b>${esc(t('bud.colorTitle', { cat: label }))}</b>`
+        + CAT_COLORS.map((k) => `<button type="button" class="b-sw c-${k}" data-pick="${k}" aria-pressed="${c.color === k}" aria-label="${esc(t(`color.${k}`))}"></button>`).join('')
+        + `<button type="button" class="ex-link" data-pick="none">${esc(t('bud.noColor'))}</button></div>`;
+      return `<div class="brow"><span class="b-name"><button type="button" class="b-sw ${c.color ? `c-${c.color}` : 'none'}" data-color="${esc(c.id)}" aria-expanded="${colorFor === c.id}" aria-label="${esc(t('bud.color', { cat: label }))}"></button>${esc(label)}</span>`
+        + `<input type="text" inputmode="decimal" autocomplete="off" id="bud-${esc(c.id)}" data-b="${esc(c.id)}" value="${esc(plain(rec.budget[c.id] || 0))}" aria-label="${esc(t('bud.budgetFor', { cat: label }))}">${avgHtml}`
+        + `<button type="button" class="icon-btn" data-cdel="${esc(c.id)}" aria-label="${esc(t('bud.deleteCat', { cat: label }))}">${icon('trash')}</button></div>${picker}`;
     }).join('');
+  }
+
+  // «وزّعت … من دخلك …»: the category budgets against the income (kept fresh while typing in them).
+  function renderBudTotal(view) {
+    const rec = view.months[cur] || { income: 0, budget: {} };
+    const placed = liveCats(state).reduce((a, c) => a + (rec.budget[c.id] || 0), 0);
+    const left = rec.income - placed;
+    $('#budTotal').hidden = !(rec.income > 0);
+    $('#budTotal').innerHTML = `<span>${esc(t('bud.total', { spent: money(placed), income: money(rec.income) }))}</span>`
+      + `<b class="${left < 0 ? 'bad' : 'ok'}">${esc(left < 0 ? t('bud.overIncome', { amount: money(-left) }) : t('bud.left', { amount: money(left) }))}</b>`;
   }
 
   // ---------- reports ----------
@@ -557,7 +641,7 @@ export function mountExpenses(el, ctx) {
     const s = start();
     el.querySelectorAll('[data-ms]').forEach((b) => b.setAttribute('aria-checked', String((b.dataset.ms === 'payday') === (s > 1))));
     $('#msDayW').hidden = s === 1;
-    if (document.activeElement !== $('#msDay')) $('#msDay').value = s > 1 ? String(s) : '';
+    $('#msDay').value = String(s > 1 ? s : PAYDAY);
     const b = periodBounds(cur, s);
     $('#msRange').hidden = s === 1;
     $('#msRange').textContent = t('ms.range', { month: monthShort(cur), from: dayMonth(b.from), to: dayMonth(b.to) });
@@ -617,6 +701,7 @@ export function mountExpenses(el, ctx) {
     renderTx(due);
     renderIns(due);
     if (!keepBud) renderBud(view);
+    renderBudTotal(view);
     renderRep();
     const board = wide.matches;
     for (const [k] of TABS) el.querySelector(`#t-${k}`).hidden = board ? (ALONE.has(tab) ? k !== tab : ALONE.has(k)) : k !== tab;
@@ -630,6 +715,7 @@ export function mountExpenses(el, ctx) {
       b.setAttribute('aria-selected', String(on));
     });
     renderChips();
+    document.body.dataset.extab = tab; // the phone bar marks «التقارير» while it is open
     syncHash();
     dispatchEvent(new CustomEvent('toolbox:expenses-changed'));
   }
@@ -652,7 +738,21 @@ export function mountExpenses(el, ctx) {
     if (b.dataset.py) { pickYear += Number(b.dataset.py); renderPicker(); $(`#mPick [data-py="${b.dataset.py}"]`)?.focus(); return; }
     if (b.dataset.pm) { cur = b.dataset.pm; pickYear = null; render(); $('#mscroll button.on')?.focus(); return; }
     if (b.dataset.tab) { tab = b.dataset.tab; render(); return; }
-    if (b.dataset.tf) { txFilter = b.dataset.tf; renderTx(dueIn(state, cur)); return; }
+    if (b.id === 'txMore') { txAll = !txAll; renderTxList(); return; }
+    if (b.dataset.color) { colorFor = colorFor === b.dataset.color ? null : b.dataset.color; renderBud(projectedState(state, cur)); $(colorFor ? '#colorPick [data-pick]' : `[data-color="${b.dataset.color}"]`)?.focus(); return; }
+    if (b.dataset.pick) {
+      const id = colorFor; colorFor = null;
+      await mutate(() => { setCategoryColor(state, id, b.dataset.pick === 'none' ? null : b.dataset.pick); return ''; });
+      $(`[data-color="${id}"]`)?.focus();
+      return;
+    }
+    if (b.dataset.use || b.id === 'useAll') {
+      const avg = categoryAverages(state, cur);
+      const ids = b.dataset.use ? [b.dataset.use] : liveCats(state).map((c) => c.id).filter((id) => suggestion(avg, id));
+      await mutate(() => { for (const id of ids) setBudget(state, cur, id, suggestion(avg, id)); return b.dataset.use ? '' : t('toast.suggested'); });
+      return;
+    }
+    if (b.dataset.setup) { await setupAction(b.dataset.setup); return; }
     if (b.id === 'exNewPlan') { openPlan(); return; }
     if (b.id === 'exLog') { openLog(); return; }
     if (b.id === 'exBudBtn') { tab = tab === 'bud' ? 'sum' : 'bud'; render(); return; }
@@ -715,7 +815,7 @@ export function mountExpenses(el, ctx) {
 
   async function setStart(day) {
     const input = $('#msDay');
-    if (!Number.isInteger(day) || day < 1 || day > 28) { fieldError(input, t('err.invalid-day'), $('#msDayW')); return; }
+    if (!startOk(day)) { fieldError(input, t('err.invalid-day'), $('#msDayW')); return; }
     if (day === start()) return;
     const wasNow = cur === nowMonth();
     await mutate(() => {
@@ -750,8 +850,22 @@ export function mountExpenses(el, ctx) {
 
   el.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.id === 'catName') { e.preventDefault(); addCat(); }
-    if (e.key === 'Enter' && e.target.id === 'msDay') { e.preventDefault(); e.target.blur(); }
   });
+
+  el.addEventListener('change', (e) => { if (e.target.id === 'txF') { txFilter = e.target.value; renderTxList(); } });
+
+  async function setupAction(kind) {
+    if (kind === 'later') { try { localStorage.setItem(SETUP_LATER, '1'); } catch { /* private mode: hidden until reload */ } $('#exSetup').hidden = true; $('#t-sum').classList.remove('setup'); return; }
+    if (kind === 'income' || kind === 'own') { tab = 'bud'; render(); $(kind === 'income' ? '#incIn' : '#exBuds input')?.focus(); return; }
+    if (kind === 'log') { openLog(); return; }
+    if (kind === 'split') {
+      const income = monthSummary(projectedState(state, cur), cur).income;
+      await mutate(() => {
+        for (const [id, v] of Object.entries(suggestSplit(state, income))) setBudget(state, cur, id, v);
+        return t('toast.split');
+      });
+    }
+  }
 
   el.addEventListener('input', (e) => {
     if (e.target.id === 'txQ') { txQuery = e.target.value; renderTxList(); }
@@ -851,6 +965,35 @@ export function mountExpenses(el, ctx) {
       : t('plan.previewEmpty');
   }
 
+  // A first payment before today: how many payments were already due, and the answer to «هل دفعتها؟».
+  let pastN = 0; // «دفعت بعضها فقط»: how many
+  function pastDue() {
+    const n = readN();
+    const startDate = $('#pStart').value;
+    if (!(n >= 1 && n <= 48) || !DATE_RE.test(startDate) || startDate >= todayLocal()) return null;
+    const rows = schedule({ start: startDate, n, total: n, paid: [] }).filter((r) => r.date <= todayLocal());
+    const ago = (Number(todayLocal().slice(0, 4)) * 12 + Number(todayLocal().slice(5, 7))) - (Number(startDate.slice(0, 4)) * 12 + Number(startDate.slice(5, 7)));
+    return { count: rows.length, n, ago, rows };
+  }
+
+  function renderPast({ reset = false } = {}) {
+    const p = pastDue();
+    $('#pPast').hidden = !p;
+    $('#pFirstW').hidden = !!p;
+    if (!p) return;
+    if (reset || pastN > p.count) pastN = p.count;
+    const mname = (r) => monthShort(r.month);
+    $('#pPastL').textContent = p.ago < 1 ? t('plan.pastRecent') : t(countKey('plan.past', p.ago), { n: p.ago });
+    $('#pPastQ').textContent = p.count === 1 ? t('plan.pastQ1', { from: mname(p.rows[0]) }) : t('plan.pastQ', { from: mname(p.rows[0]), to: mname(p.rows[p.count - 1]) });
+    let monthly = 0;
+    try { monthly = parseAmount($('#pMonthly').value); } catch { monthly = 0; }
+    $('#pPastAll').textContent = t(monthly > 0 ? 'plan.pastAllSub' : 'plan.pastAllSubN', { n: p.count, amount: money(monthly * p.count), left: p.n - p.count });
+    const some = planSheet.querySelector('input[name=pPast]:checked').value === 'some';
+    $('#pSome').hidden = !some;
+    $('#pPaidN').textContent = String(pastN);
+    $('#pSomeTxt').textContent = pastN ? t('plan.pastOf', { n: p.count, from: mname(p.rows[0]), to: mname(p.rows[pastN - 1]) }) : t('plan.pastNone', { n: p.count });
+  }
+
   function openPlan() {
     for (const id of ['#pItem', '#pMonthly', '#provOther', '#pN']) clearFieldError($(id));
     for (const id of ['#pItem', '#pMonthly', '#provOther']) $(id).value = '';
@@ -858,9 +1001,11 @@ export function mountExpenses(el, ctx) {
     setDateText('pStart');
     $('#pFirst').checked = true;
     $('#pN').value = '4';
+    planSheet.querySelector('input[name=pPast][value=all]').checked = true;
     prov = 'tabby';
     renderProvs();
     preview();
+    renderPast({ reset: true });
     openSheet(planSheet);
   }
 
@@ -923,8 +1068,20 @@ export function mountExpenses(el, ctx) {
       const n = e.target.closest('[data-n]');
       if (n) { $('#pN').value = n.dataset.n; clearFieldError($('#pN')); preview(); }
     });
-    planSheet.addEventListener('input', (e) => { if (['pMonthly', 'pN', 'pStart'].includes(e.target.id)) preview(); });
-    planSheet.addEventListener('change', (e) => { if (e.target.id === 'pStart') preview(); });
+    planSheet.addEventListener('input', (e) => { if (['pMonthly', 'pN', 'pStart'].includes(e.target.id)) { preview(); renderPast({ reset: e.target.id !== 'pMonthly' }); } });
+    planSheet.addEventListener('change', (e) => {
+      if (e.target.id === 'pStart') { preview(); renderPast({ reset: true }); }
+      if (e.target.name === 'pPast') renderPast();
+    });
+    planSheet.addEventListener('click', (e) => {
+      const b = e.target.closest('#pPaidLess, #pPaidMore');
+      if (!b) return;
+      e.preventDefault(); // inside a label: do not toggle the radio
+      const p = pastDue();
+      if (!p) return;
+      pastN = Math.min(p.count, Math.max(0, pastN + (b.id === 'pPaidMore' ? 1 : -1)));
+      renderPast();
+    });
     planSheet.addEventListener('submit', async (e) => {
       e.preventDefault();
       // The user enters the monthly payment; the plan stores the total (monthly × n), so every payment is equal.
@@ -938,8 +1095,10 @@ export function mountExpenses(el, ctx) {
       if (!(n >= 1 && n <= 48)) { fieldError($('#pN'), errMsg(new Error('invalid-months')), $('#pNW').parentElement); return; }
       const firstPaid = $('#pFirst').checked;
       const total = monthly * n;
+      const past = pastDue();
+      const paidCount = past ? (planSheet.querySelector('input[name=pPast]:checked').value === 'some' ? pastN : past.count) : undefined;
       await mutate(() => {
-        addPlan(state, { provider, item, total, n, start: startDate, firstPaid });
+        addPlan(state, { provider, item, total, n, start: startDate, firstPaid, paidCount });
         return t('toast.planAdded', { provider: provLabel(provider), n, amount: money(paymentAmount({ total, n }, 0)) });
       }, { sheet: true });
     });
@@ -984,6 +1143,7 @@ export function mountExpenses(el, ctx) {
       render();
     },
     render,
+    showTab(k) { tab = k; render(); scrollTo(0, 0); },
     openLog,
     openPlan,
     // FAB: «أضف قسط» on the installments tab, «سجّل صرف» otherwise.
