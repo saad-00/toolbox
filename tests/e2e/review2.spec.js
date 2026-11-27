@@ -72,7 +72,7 @@ test.describe('PC', () => {
     const st = page.locator('#exCats .cat', { hasText: 'مصاريف المدرسة' }).locator('.st');
     await expect(st).toContainText('تجاوز بـ 1,371.48');
     expect(await st.evaluate((e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
-    const card = await page.locator('#t-sum > .card:not(.hero)').boundingBox();
+    const card = await page.locator('#t-sum > .ex-cats').boundingBox();
     const textLeft = await st.evaluate((e) => { const r = document.createRange(); r.selectNodeContents(e); return r.getBoundingClientRect().left; });
     expect(textLeft).toBeGreaterThanOrEqual(card.x);
   });
@@ -82,6 +82,7 @@ test.describe('PC', () => {
     await expect(page.locator('#exNew')).toBeVisible();
     await expect(page.locator('#exNew')).not.toContainText('تبويب');
     await expect(page.locator('#exTxs')).not.toContainText('زر +');
+    await page.locator('#exSetup [data-setup=later]').click(); // past the «ابدأ في 3 خطوات» card (v1.8)
     await expect(page.locator('#exCats')).toContainText('حدّد ميزانية البنود');
     await page.locator('#exCats [data-tab=bud]').click();
     await expect(page.locator('#t-bud')).toBeVisible();

@@ -16,6 +16,23 @@ export function history(state, end, today, n = 6) {
   return out;
 }
 
+// «اقتراح من صرفك الفعلي»: each category's spending averaged over the months (of the n before `month`)
+// that have any spending. { months: how many counted, by: { catId: halalas } }.
+export function categoryAverages(state, month, n = 3) {
+  const window = new Set(Array.from({ length: n }, (_, i) => addMonth(month, -(i + 1))));
+  const sums = {}; const withData = new Set();
+  for (const x of state.tx) {
+    if (x.deleted) continue;
+    const m = txMonth(state, x);
+    if (!window.has(m)) continue;
+    withData.add(m);
+    sums[x.catId] = (sums[x.catId] || 0) + x.amount;
+  }
+  const by = {};
+  for (const [id, v] of Object.entries(sums)) by[id] = Math.round(v / withData.size);
+  return { months: withData.size, by };
+}
+
 // Averages over finished months that have any income or spending.
 export function historyStats(rows) {
   const done = rows.filter((r) => !r.partial && !r.future && (r.spent || r.income));

@@ -2,6 +2,11 @@
 // current version. Keep descriptions simple and non-technical (the user reads them).
 export const RELEASES = [
   {
+    v: '1.8', date: '2026-11-27',
+    ar: ['عند البداية يسألك: متى ينزل راتبك؟ ويبدأ شهرك من يومه، ومنها «آخر يوم في الشهر»', 'حساب جديد: «ابدأ في 3 خطوات» مع اقتراح لتوزيع دخلك على البنود', 'في الميزانية: اقتراح من متوسط صرفك في آخر 3 أشهر، ولون لكل بند', 'عند إضافة قسط بدأ من قبل: يسألك كم دفعة دفعت', 'الجوال: زر + صار في وسط الشريط السفلي ومعه «التقارير»، وآخر 10 حركات مع «عرض الكل»'],
+    en: ['On first run: when is your salary paid? Your month starts that day, including “Last day of the month”', 'A new account gets “Get started in 3 steps” with a suggested split of your income', 'Budget: suggestions from your last 3 months of spending, and a colour per category', 'Adding an installment that already started asks how many payments you made', 'Phone: + sits in the middle of the bottom bar with “Reports”; the latest 10 transactions with “Show all”'],
+  },
+  {
     v: '1.7', date: '2026-11-27',
     ar: ['علامة السالب صارت قبل الرقم، والرقم يصير أحمر إذا تجاوزت دخلك', '«أقرب قسط» يعرض الدفعة القادمة، ويعلّم الدفعات السابقة كمدفوعة بضغطة', 'إصلاحات في العرض: الأسماء الطويلة، ورأس الصفحة على اللابتوب، والشهر الحالي في شريط الأشهر'],
     en: ['The minus sign sits before the number, and it turns red when you are over your income', '“Next installment” shows the coming payment and ticks earlier ones as paid in one go', 'Display fixes: long names, the page header on laptops, and the current month in the month strip'],

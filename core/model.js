@@ -70,6 +70,27 @@ export function deleteCategory(state, catId) {
   c.updatedAt = now();
 }
 
+// Category colours (a fixed set; the hex values live in core/theme.css as --c-<id>).
+export const CAT_COLORS = ['green', 'yellow', 'cyan', 'orange', 'blue', 'violet', 'red', 'pink'];
+
+export function setCategoryColor(state, catId, color) {
+  if (color !== null && !CAT_COLORS.includes(color)) throw new Error('invalid-color');
+  const c = getCategory(state, catId);
+  if (!c) throw new Error('category-not-found');
+  c.color = color;
+  c.updatedAt = now();
+}
+
+// «اقترح توزيعاً» for a new account: a starting share of the income for each starter category, in whole
+// riyals; 10 % is left unplaced. Custom categories get no guess.
+const SPLIT = { 'cat.housing': 30, 'cat.bills': 8, 'cat.mobileNet': 2, 'cat.food': 15, 'cat.transport': 8, 'cat.subscriptions': 2, 'cat.emergency': 5, 'cat.savings': 10, 'cat.allowance': 10 };
+export function suggestSplit(state, income) {
+  const out = {};
+  if (!(income > 0)) return out;
+  for (const c of liveCats(state)) if (SPLIT[c.nameKey]) out[c.id] = Math.floor((income * SPLIT[c.nameKey]) / 100 / 100) * 100;
+  return out;
+}
+
 export function catLabel(cat, t) {
   return cat.name ?? t(cat.nameKey);
 }

@@ -64,29 +64,38 @@ export function setBudget(state, month, catId, halalas) {
 }
 
 // ---------- month periods («متى يبدأ شهرك؟») ----------
-// A month can start on a payday instead of the 1st. With start day s > 1, period 'YYYY-MM' runs from
-// day s of the previous calendar month to day s-1 of this one (s = 27: «نوفمبر» = 27 Oct – 26 Nov).
-// The start day is shared across devices (state.prefs.monthStart); 1 = calendar months.
+// A month can start on a payday instead of the 1st: a period runs from day s of one calendar month to
+// day s-1 of the next, and is named after the month that holds most of its days: s ≤ 15 → the start
+// month (s = 10: «نوفمبر» = 10 Nov – 9 Dec), s ≥ 16 → the end month (s = 27: «نوفمبر» = 27 Oct – 26 Nov).
+// s = 31 means «آخر يوم في الشهر» (each month's last day). Shared across devices (state.prefs.monthStart);
+// 1 = calendar months.
 const pad2 = (n) => String(n).padStart(2, '0');
 
 export function monthStartOf(state) {
   const s = state && state.prefs && state.prefs.monthStart;
-  return Number.isInteger(s) && s >= 1 && s <= 28 ? s : 1;
+  return startOk(s) ? s : 1;
 }
+
+export const startOk = (s) => Number.isInteger(s) && ((s >= 1 && s <= 28) || s === 31);
+const lastDay = (month) => new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+const startIn = (month, start) => Math.min(start, lastDay(month)); // 31 → that month's last day
+const early = (start) => start <= 15; // the period's days are mostly in the month it starts in
 
 export function periodOf(date, start = 1) {
   const cal = String(date).slice(0, 7);
   if (start <= 1) return cal;
-  return Number(String(date).slice(8, 10)) >= start ? addMonth(cal, 1) : cal;
+  const started = Number(String(date).slice(8, 10)) >= startIn(cal, start); // on/after this month's start day
+  if (early(start)) return started ? cal : addMonth(cal, -1);
+  return started ? addMonth(cal, 1) : cal;
 }
-
-const lastDay = (month) => new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
 
 // First and last date (inclusive, 'YYYY-MM-DD') of a period.
 export function periodBounds(month, start = 1) {
   check(month);
   if (start <= 1) return { from: `${month}-01`, to: `${month}-${pad2(lastDay(month))}` };
-  return { from: `${addMonth(month, -1)}-${pad2(start)}`, to: `${month}-${pad2(start - 1)}` };
+  const a = early(start) ? month : addMonth(month, -1);
+  const b = addMonth(a, 1);
+  return { from: `${a}-${pad2(startIn(a, start))}`, to: `${b}-${pad2(startIn(b, start) - 1)}` };
 }
 
 const dayNo = (date) => Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))) / 864e5;
@@ -95,8 +104,9 @@ export function daysBetween(a, b) { return dayNo(b) - dayNo(a); }
 // The date of day-of-month `day` (1–28) inside a period.
 export function dateInPeriod(month, day, start = 1) {
   check(month);
-  const cal = start > 1 && day >= start ? addMonth(month, -1) : month;
-  return `${cal}-${pad2(day)}`;
+  if (start <= 1) return `${month}-${pad2(day)}`;
+  const a = periodBounds(month, start).from.slice(0, 7);
+  return `${day >= startIn(a, start) ? a : addMonth(a, 1)}-${pad2(day)}`;
 }
 
 // Today inside a period: days passed (today included), days left (today included) and the period
@@ -110,7 +120,7 @@ export function periodProgress(month, today, start = 1) {
 }
 
 export function setMonthStart(state, day) {
-  if (!Number.isInteger(day) || day < 1 || day > 28) throw new Error('invalid-day');
+  if (!startOk(day)) throw new Error('invalid-day');
   state.prefs = { monthStart: day, updatedAt: now() };
 }
 

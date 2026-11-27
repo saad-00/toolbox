@@ -13,8 +13,10 @@ const optStr = (x) => x === undefined || x === null || typeof x === 'string';
 const optBool = (x) => x === undefined || typeof x === 'boolean';
 const base = (r) => isObj(r) && isId(r.id) && stamp(r.updatedAt) && optBool(r.deleted);
 
+const COLORS = new Set(['green', 'yellow', 'cyan', 'orange', 'blue', 'violet', 'red', 'pink']);
+
 function validCat(c) {
-  return base(c) && optStr(c.name) && optStr(c.nameKey)
+  return base(c) && optStr(c.name) && optStr(c.nameKey) && (c.color === undefined || c.color === null || COLORS.has(c.color))
     && (typeof c.name === 'string' || typeof c.nameKey === 'string')
     && (c.order === undefined || Number.isFinite(c.order));
 }
@@ -45,7 +47,7 @@ function validFixed(f) {
     && typeof f.since === 'string' && MONTH_RE.test(f.since);
 }
 
-const validPrefs = (p) => p === undefined || (isObj(p) && stamp(p.updatedAt) && (p.monthStart === undefined || dayOk(p.monthStart)));
+const validPrefs = (p) => p === undefined || (isObj(p) && stamp(p.updatedAt) && (p.monthStart === undefined || dayOk(p.monthStart) || p.monthStart === 31));
 
 export function validState(s) {
   if (!isObj(s) || !Array.isArray(s.cats) || !Array.isArray(s.tx) || !Array.isArray(s.plans) || !isObj(s.months)) return false;

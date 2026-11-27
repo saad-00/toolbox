@@ -219,7 +219,7 @@ async function retryLoad() {
   document.getElementById('view-expenses').innerHTML = '';
   ensureExpenses();
   updateHomeSub();
-  if (current === 'expenses') $('#fab').classList.add('on');
+  $('#fab').classList.add('on');
 }
 
 function ensureExpenses() {
@@ -237,9 +237,13 @@ async function getJSON(rel) {
 }
 
 function renderNav() {
-  const html = NAV.map(([r, key, ic]) => `<a href="#${r}" data-r="${r}" title="${esc(t(key))}">${icon(ic)}<span class="nl">${esc(t(key))}</span></a>`).join('');
-  $('#sideNav').innerHTML = html;
-  $('#bNav').innerHTML = html;
+  const link = ([r, key, ic]) => `<a href="#${r}" data-r="${r}" title="${esc(t(key))}">${icon(ic)}<span class="nl">${esc(t(key))}</span></a>`;
+  $('#sideNav').innerHTML = NAV.map(link).join('');
+  // Phone bar: home, expenses, «سجّل صرف» (+) in the middle, reports, settings.
+  const fab = $('#fab');
+  $('#bNav').innerHTML = link(NAV[0]) + link(NAV[1])
+    + `<a href="#expenses" data-rep title="${esc(t('tab.reports'))}">${icon('chart')}<span class="nl">${esc(t('tab.reports'))}</span></a>` + link(NAV[2]);
+  $('#bNav').insertBefore(fab, $('#bNav [data-rep]'));
   $('#bNav').setAttribute('aria-label', t('nav.menu'));
   $('#sideNav').setAttribute('aria-label', t('nav.menu'));
   $('#brandName').textContent = t('app.name');
@@ -316,7 +320,8 @@ function show(view) {
   });
   if (view === 'expenses') ensureExpenses();
   if (view === 'prefs') ensurePrefs();
-  $('#fab').classList.toggle('on', view === 'expenses' && !loadFailed);
+  $('#fab').classList.toggle('on', !loadFailed); // in the phone bar on every page (hidden on a PC)
+  document.body.dataset.view = view;
   scrollTo(0, 0);
   dispatchEvent(new CustomEvent('toolbox:route', { detail: { view } }));
 }
@@ -360,7 +365,12 @@ function wire() {
       if (location.hash !== '#expenses') location.hash = '#expenses';
       dispatchEvent(new CustomEvent('toolbox:log'));
     } else if (e.target.closest('#fab')) {
+      if (location.hash.split('/')[0] !== '#expenses') location.hash = '#expenses';
       dispatchEvent(new CustomEvent('toolbox:log', { detail: { source: 'fab' } }));
+    } else if (e.target.closest('[data-rep]')) {
+      e.preventDefault();
+      if (location.hash.split('/')[0] !== '#expenses') location.hash = '#expenses';
+      ensureExpenses()?.showTab('rep');
     }
   });
   // The FAB opens «أضف قسط» on the installments tab; the hub's quick button always opens «سجّل صرف».

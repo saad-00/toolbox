@@ -4,15 +4,17 @@ import { addMonth, monthOf, periodOf, monthStartOf, daysBetween } from '../../co
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-export function addPlan(state, { provider, item, total, n, start, firstPaid }) {
+// paidCount: how many of the first payments are already paid (a plan added after it started);
+// without it, firstPaid marks only the first.
+export function addPlan(state, { provider, item, total, n, start, firstPaid, paidCount }) {
   const prov = typeof provider === 'string' ? provider.trim() : '';
   const it = typeof item === 'string' ? item.trim() : '';
   if (!prov || !it) throw new Error('invalid-plan');
   if (!Number.isSafeInteger(total) || total <= 0) throw new Error('invalid-plan');
   if (!Number.isInteger(n) || n < 1 || n > 48) throw new Error('invalid-months');
   if (typeof start !== 'string' || !DATE_RE.test(start)) throw new Error('invalid-plan');
-  const paid = Array(n).fill(false);
-  paid[0] = !!firstPaid;
+  if (paidCount !== undefined && !(Number.isInteger(paidCount) && paidCount >= 0 && paidCount <= n)) throw new Error('invalid-plan');
+  const paid = Array.from({ length: n }, (_, k) => (paidCount === undefined ? k === 0 && !!firstPaid : k < paidCount));
   const id = uid();
   state.plans.push({ id, provider: prov, item: it, total, n, start, paid, deleted: false, updatedAt: now() });
   return id;
