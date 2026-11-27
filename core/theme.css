@@ -282,9 +282,9 @@ details .btn{margin-top:12px}
 @media(min-width:821px) and (max-width:1099px){
  .ex-board{grid-template-columns:minmax(0,1fr)}
  #exHero,#t-sum>.card:not(.hero),#t-tx,#t-ins,#t-bud{grid-column:auto}
- /* title + month on one line, the three actions together on the next */
- .ex-head .sp{flex-basis:100%;margin:-7px 0}
 }
+/* up to a 1280px laptop the header has no room for one row: title + month, then the actions together */
+@media(min-width:821px) and (max-width:1279px){.ex-head .sp{flex-basis:100%;margin:-7px 0}}
 
 /* ---- v1.6: review fixes and the approved mockups ---- */
 a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}
@@ -320,7 +320,8 @@ input[aria-invalid=true]{border-color:var(--bad)!important;box-shadow:inset 0 0 
 .ex-card-head{margin-bottom:6px}.ex-card-head h2{margin:0}
 .ex-legend{display:flex;gap:12px;font-size:12px;color:var(--sub)}.ex-legend span{display:inline-flex;align-items:center;gap:6px}
 .ex-legend i{width:10px;height:10px;border-radius:50%}.ex-legend i.near{background:var(--warn)}.ex-legend i.over{background:var(--bad)}
-.cat .t .st{font-weight:600}.cat.near .t .st{color:var(--warn)}.cat.over .t .st{color:var(--bad)}
+.cat .t .st{font-weight:600;flex:none}.cat .t span:first-child{overflow-wrap:anywhere}
+.hero.neg .big{color:var(--bad)}.cat.near .t .st{color:var(--warn)}.cat.over .t .st{color:var(--bad)}
 .bar i.near{background:var(--warn)}
 /* transactions: day groups, search, filter */
 .tx-day{display:flex;justify-content:space-between;gap:10px;padding:16px 0 4px;font-size:13px;color:var(--sub)}
@@ -332,7 +333,9 @@ input[aria-invalid=true]{border-color:var(--bad)!important;box-shadow:inset 0 0 
 /* next installment */
 .nx{display:flex;align-items:center;gap:14px;padding:14px;border-radius:18px;background:var(--glass2);box-shadow:inset 0 0 0 1px var(--edge)}
 .nx-d{width:52px;flex:none;text-align:center;line-height:1.15}.nx-d b{display:block;font-size:24px}.nx-d small{font-size:12px;color:var(--sub)}
-.nx .m{flex:1;min-width:0}.nx .m small{display:block;font-size:12px;color:var(--sub)}.nx.late .m small{color:var(--bad)}
+.nx .m{flex:1;min-width:0}.nx .m small{display:block;font-size:12px;color:var(--sub)}
+.nx-late{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;border-radius:14px;background:var(--glass);font-size:13px}.nx-late span{flex:1 1 180px}
+.nx:empty+.nx-pay{display:none}
 .nx-a{font-size:18px;white-space:nowrap}
 .nx-pay{border:0!important;padding:12px 0 0!important}
 /* reports */

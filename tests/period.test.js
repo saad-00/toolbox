@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createState, addCategory, addTx, deleteTx, restoreRecord } from '../core/model.js';
 import { periodOf, periodBounds, periodProgress, dateInPeriod, setMonthStart, monthStartOf, txMonth, setIncome } from '../core/months.js';
 import { monthSummary } from '../tools/expenses/calc.js';
-import { addPlan, schedule, dueIn, nextPayment, upcomingPayments } from '../tools/expenses/installments.js';
+import { addPlan, schedule, dueIn, nextPayment, upcomingPayments, overduePayments, markPaidBefore } from '../tools/expenses/installments.js';
 
 test('calendar months by default', () => {
   assert.equal(periodOf('2026-11-30'), '2026-11');
@@ -69,7 +69,9 @@ test('installments follow the payday period, and the next payment is found', () 
   assert.equal(next.k, 1);
   assert.equal(next.date, '2026-11-28');
   assert.equal(next.inDays, 9);
-  assert.equal(nextPayment(s, '2026-12-01').inDays, -3); // overdue
+  // the next payment is never an old one: past unpaid payments are reported apart
+  assert.equal(nextPayment(s, '2026-12-01').date, '2026-12-28');
+  assert.deepEqual(overduePayments(s, '2026-12-01').map((p) => p.date), ['2026-11-28']);
   assert.deepEqual(upcomingPayments(s, '2026-11-19', 2).map((p) => p.date), ['2026-11-28', '2026-12-28']);
 });
 
@@ -89,4 +91,18 @@ test('restoreRecord brings a soft-deleted record back with a newer stamp', () =>
   assert.equal(s.tx[0].deleted, false);
   assert.ok(s.tx[0].updatedAt >= before);
   assert.throws(() => restoreRecord(s.tx, 'nope'), /not-found/);
+});
+
+test('payments before today that were never ticked: listed, and marked paid in one go', () => {
+  const s = createState([]);
+  addPlan(s, { provider: 'tabby', item: 'جوال', total: 2400, n: 24, start: '2026-03-10', firstPaid: true });
+  addPlan(s, { provider: 'tamara', item: 'لابتوب', total: 600, n: 6, start: '2026-11-20', firstPaid: false });
+  const late = overduePayments(s, '2026-11-15');
+  assert.deepEqual(late.map((p) => p.k), [1, 2, 3, 4, 5, 6, 7, 8]); // Apr–Nov 10; the 15th itself is not overdue
+  const marked = markPaidBefore(s, '2026-11-15');
+  assert.equal(marked.length, 8);
+  assert.deepEqual(s.plans[0].paid.slice(0, 10), [true, true, true, true, true, true, true, true, true, false]);
+  assert.deepEqual(s.plans[1].paid, [false, false, false, false, false, false]); // a future plan is untouched
+  assert.equal(overduePayments(s, '2026-11-15').length, 0);
+  assert.equal(nextPayment(s, '2026-11-15').date, '2026-11-20');
 });

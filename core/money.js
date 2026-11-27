@@ -18,6 +18,8 @@ const cents = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximum
 
 // Formats integer halalas with latin digits for both languages: two decimals whenever there are
 // halalas (153020 → "1,530.20"), none for whole riyals (100000 → "1,000").
+// A negative is wrapped in LRI…PDI so the minus stays in front inside Arabic (RTL) text.
 export function formatAmount(halalas, lang) {
-  return (halalas % 100 ? cents : whole).format(halalas / 100);
+  const s = (halalas % 100 ? cents : whole).format(halalas / 100);
+  return halalas < 0 ? `\u2066${s}\u2069` : s;
 }

@@ -2,6 +2,11 @@
 // current version. Keep descriptions simple and non-technical (the user reads them).
 export const RELEASES = [
   {
+    v: '1.7', date: '2026-11-27',
+    ar: ['علامة السالب صارت قبل الرقم، والرقم يصير أحمر إذا تجاوزت دخلك', '«أقرب قسط» يعرض الدفعة القادمة، ويعلّم الدفعات السابقة كمدفوعة بضغطة', 'إصلاحات في العرض: الأسماء الطويلة، ورأس الصفحة على اللابتوب، والشهر الحالي في شريط الأشهر'],
+    en: ['The minus sign sits before the number, and it turns red when you are over your income', '“Next installment” shows the coming payment and ticks earlier ones as paid in one go', 'Display fixes: long names, the page header on laptops, and the current month in the month strip'],
+  },
+  {
     v: '1.6', date: '2026-11-20',
     ar: ['«مصروفك اليومي»: كم تقدر تصرف كل يوم لين آخر الشهر', 'مصاريف ثابتة تُسجَّل تلقائياً كل شهر، وتقدر تخلي الشهر يبدأ يوم الراتب', 'تقارير آخر 6 أشهر وتصدير الحركات إلى Excel', 'زر «تراجع» بعد الحذف، والحركات مجمّعة باليوم مع بحث وفلتر', 'على الكمبيوتر: نافذة التسجيل في الوسط، واختيار الشهر من شبكة، واختصار N، والرئيسية صارت ملخصاً'],
     en: ['“Daily allowance”: how much you can spend each day until the month ends', 'Fixed expenses logged automatically every month, and months that can start on payday', 'Reports for the last 6 months and export of your transactions to Excel', '“Undo” after deleting, and transactions grouped by day with search and filters', 'On computers: a centred log dialog, a month grid, the N shortcut, and a summary on the home page'],
